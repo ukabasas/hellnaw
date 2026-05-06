@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Nova3D (dev)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "args": [
+        "--web-port=5555",
+        "--dart-define=AUTH_BASE_URL=http://localhost:8009",
+        "--dart-define=CAD_BASE_URL=http://localhost:8009"
+      ]
+    }
+  ]
+}

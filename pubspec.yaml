@@ -1,0 +1,52 @@
+name: nova3d_frontend
+description: Nova3D – Text to CAD web application
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_web_plugins:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # State management
+  flutter_riverpod: ^2.6.1
+
+  # Routing
+  go_router: ^14.6.2
+
+  # HTTP
+  dio: ^5.7.0
+
+  # Local storage (uses localStorage on web)
+  shared_preferences: ^2.3.3
+
+  # Fonts
+  google_fonts: ^6.2.1
+
+  # URL launcher (for Google OAuth redirect)
+  url_launcher: ^6.3.1
+
+  # Date formatting
+  intl: ^0.20.2
+
+  # Web interop (for URL hash parsing in OAuth callback)
+  web: ^1.1.1
+
+  file_picker: ^11.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/models/
+    - assets/gifs/nova3d/
+    - assets/gifs/nova3d/adam-cad-comparison/

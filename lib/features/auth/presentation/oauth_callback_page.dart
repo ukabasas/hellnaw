@@ -1,0 +1,72 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:nova3d_frontend/core/theme.dart';
+import 'package:nova3d_frontend/features/auth/state/auth_provider.dart';
+import 'package:web/web.dart' as web;
+
+class OAuthCallbackPage extends ConsumerStatefulWidget {
+  const OAuthCallbackPage({super.key});
+
+  @override
+  ConsumerState<OAuthCallbackPage> createState() => _OAuthCallbackPageState();
+}
+
+class _OAuthCallbackPageState extends ConsumerState<OAuthCallbackPage> {
+  @override
+  void initState() {
+    super.initState();
+    _handleCallback();
+  }
+
+  Future<void> _handleCallback() async {
+    // main() stores the OAuth fragment in sessionStorage before GoRouter
+    // initializes (to avoid the fragment causing a route-match assertion).
+    // Fall back to reading the live hash in case of hot-reload during dev.
+    final stored = web.window.sessionStorage.getItem('_nova3d_oauth') ?? '';
+    web.window.sessionStorage.removeItem('_nova3d_oauth');
+
+    final hash = web.window.location.hash;
+    final fragment = stored.isNotEmpty
+        ? stored
+        : (hash.startsWith('#') ? hash.substring(1) : hash);
+
+    final params = Uri.splitQueryString(fragment);
+
+    final token = params['access_token'];
+    final error = params['error'];
+
+    if (error != null) {
+      if (mounted) context.go('/signin?error=${Uri.encodeComponent(error)}');
+      return;
+    }
+
+    if (token == null || token.isEmpty) {
+      if (mounted) context.go('/signin?error=no_token');
+      return;
+    }
+
+    try {
+      await ref.read(authProvider.notifier).handleOAuthCallback(token);
+      if (mounted) context.go('/');
+    } catch (_) {
+      if (mounted) context.go('/signin?error=auth_failed');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+        backgroundColor: kBgDark,
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: kAccentBlue),
+              SizedBox(height: 16),
+              Text('Finishing sign-in…',
+                  style: TextStyle(color: kTextSecondary)),
+            ],
+          ),
+        ),
+      );
+}

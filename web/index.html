@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="Nova3D client application.">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Nova3D">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>Nova3D</title>
+  <link rel="manifest" href="manifest.json">
+
+  <style>
+    #nova3d-loading {
+      position: fixed;
+      inset: 0;
+      background: #0f0f0f;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      z-index: 9999;
+      font-family: sans-serif;
+    }
+    #nova3d-loading span {
+      color: #94a3b8;
+      font-size: 14px;
+      letter-spacing: 0.05em;
+    }
+    .nova3d-spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid #1e293b;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: nova3d-spin 0.8s linear infinite;
+    }
+    @keyframes nova3d-spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="nova3d-loading">
+    <div class="nova3d-spinner"></div>
+    <span>Nova3D</span>
+  </div>
+  <script>
+    function removeNova3dLoading() {
+      var el = document.getElementById('nova3d-loading');
+      if (el) el.remove();
+    }
+
+    // Different Flutter web modes emit different readiness events. Listen for
+    // both, then fall back so this shell can never trap the app behind a loader.
+    window.addEventListener('flutter-first-frame', removeNova3dLoading);
+    document.addEventListener('dart-app-ready', removeNova3dLoading);
+    window.setTimeout(removeNova3dLoading, 8000);
+  </script>
+  <script>
+    window.nova3dModelCache = {
+      name: 'nova3d-glb-cache-v1',
+      async store(src) {
+        if (!src || src.startsWith('blob:') || src.startsWith('data:') || !('caches' in window)) {
+          return src;
+        }
+
+        const cache = await caches.open(this.name);
+        let response = await cache.match(src);
+
+        if (!response) {
+          response = await fetch(src, { mode: 'cors', credentials: 'omit' });
+          if (!response.ok) {
+            throw new Error('Model fetch failed: ' + response.status);
+          }
+          await cache.put(src, response.clone());
+        }
+
+        const blob = await response.blob();
+        return URL.createObjectURL(blob);
+      },
+      revoke(src) {
+        if (src && src.startsWith('blob:')) {
+          URL.revokeObjectURL(src);
+        }
+      }
+    };
+  </script>
+  <script>
+    var nova3dFullscreenFrame = null;
+    var nova3dPreviousBodyOverflow = '';
+
+    window.addEventListener('message', function (event) {
+      var data = event.data || {};
+      if (data.type !== 'nova3d-viewer-fullscreen') return;
+
+      var frames = Array.prototype.slice.call(document.querySelectorAll('iframe'));
+      var frame = frames.find(function (candidate) {
+        return candidate.contentWindow === event.source;
+      });
+      if (!frame) return;
+
+      function notify(full) {
+        try {
+          frame.contentWindow.postMessage({
+            type: 'nova3d-viewer-fullscreen-state',
+            full: full
+          }, '*');
+        } catch (_) {}
+      }
+
+      function notifyWhenCurrent(full) {
+        window.requestAnimationFrame(function () {
+          if (frame.dataset.nova3dFullscreenState === (full ? 'full' : 'compact')) {
+            notify(full);
+          }
+        });
+      }
+
+      function setViewerUrlMode(mode) {
+        try {
+          var url = new URL(frame.getAttribute('src') || frame.src, window.location.href);
+          url.searchParams.set('mode', mode);
+          var next = url.pathname + url.search + url.hash;
+          if (frame.getAttribute('src') !== next) {
+            frame.setAttribute('src', next);
+          }
+        } catch (_) {}
+      }
+
+      if (data.action === 'enter') {
+        if (!frame.dataset.nova3dFullscreen) {
+          frame.dataset.nova3dFullscreen = 'true';
+          frame.__nova3dParent = frame.parentNode;
+          frame.__nova3dNextSibling = frame.nextSibling;
+          frame.dataset.nova3dStylePosition = frame.style.position || '';
+          frame.dataset.nova3dStyleInset = frame.style.inset || '';
+          frame.dataset.nova3dStyleWidth = frame.style.width || '';
+          frame.dataset.nova3dStyleHeight = frame.style.height || '';
+          frame.dataset.nova3dStyleZIndex = frame.style.zIndex || '';
+          frame.dataset.nova3dStyleBorderRadius = frame.style.borderRadius || '';
+          nova3dPreviousBodyOverflow = document.body.style.overflow || '';
+        }
+
+        var overlay = document.getElementById('nova3d-viewer-overlay');
+        if (!overlay) {
+          overlay = document.createElement('div');
+          overlay.id = 'nova3d-viewer-overlay';
+          document.body.appendChild(overlay);
+        }
+
+        nova3dFullscreenFrame = frame;
+        frame.dataset.nova3dFullscreenState = 'full';
+        setViewerUrlMode('editor');
+        document.body.style.overflow = 'hidden';
+        overlay.style.position = 'fixed';
+        overlay.style.inset = '0';
+        overlay.style.width = '100vw';
+        overlay.style.height = '100vh';
+        overlay.style.zIndex = '2147483647';
+        overlay.style.background = '#0d0d0d';
+        overlay.style.overflow = 'hidden';
+        overlay.appendChild(frame);
+        frame.style.position = 'absolute';
+        frame.style.inset = '0';
+        frame.style.width = '100%';
+        frame.style.height = '100%';
+        frame.style.zIndex = '1';
+        frame.style.borderRadius = '0';
+        notify(true);
+        notifyWhenCurrent(true);
+      }
+
+      if (data.action === 'exit') {
+        frame.dataset.nova3dFullscreenState = 'compact';
+        setViewerUrlMode('preview');
+        notify(false);
+        exitNova3dViewerFullscreen(frame);
+        notifyWhenCurrent(false);
+      }
+    });
+
+    function exitNova3dViewerFullscreen(frame) {
+      if (!frame || !frame.dataset.nova3dFullscreen) return;
+      frame.style.position = frame.dataset.nova3dStylePosition || '';
+      frame.style.inset = frame.dataset.nova3dStyleInset || '';
+      frame.style.width = frame.dataset.nova3dStyleWidth || '';
+      frame.style.height = frame.dataset.nova3dStyleHeight || '';
+      frame.style.zIndex = frame.dataset.nova3dStyleZIndex || '';
+      frame.style.borderRadius = frame.dataset.nova3dStyleBorderRadius || '';
+      if (frame.__nova3dParent) {
+        frame.__nova3dParent.insertBefore(frame, frame.__nova3dNextSibling || null);
+      }
+      var overlay = document.getElementById('nova3d-viewer-overlay');
+      if (overlay && overlay.parentNode) {
+        overlay.parentNode.removeChild(overlay);
+      }
+      delete frame.dataset.nova3dFullscreen;
+      delete frame.dataset.nova3dStylePosition;
+      delete frame.dataset.nova3dStyleInset;
+      delete frame.dataset.nova3dStyleWidth;
+      delete frame.dataset.nova3dStyleHeight;
+      delete frame.dataset.nova3dStyleZIndex;
+      delete frame.dataset.nova3dStyleBorderRadius;
+      delete frame.dataset.nova3dFullscreenState;
+      delete frame.__nova3dParent;
+      delete frame.__nova3dNextSibling;
+      document.body.style.overflow = nova3dPreviousBodyOverflow;
+      if (nova3dFullscreenFrame === frame) nova3dFullscreenFrame = null;
+    }
+
+    window.addEventListener('keydown', function (event) {
+      if (event.key !== 'Escape' || !nova3dFullscreenFrame) return;
+      var frame = nova3dFullscreenFrame;
+      exitNova3dViewerFullscreen(frame);
+      try {
+        frame.contentWindow.postMessage({
+          type: 'nova3d-viewer-fullscreen-state',
+          full: false
+        }, '*');
+      } catch (_) {}
+    });
+  </script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations()
+        .then((registrations) => registrations.forEach((registration) => registration.unregister()));
+    }
+    if ('caches' in window) {
+      caches.keys().then((keys) => keys
+        .filter((key) => key !== window.nova3dModelCache.name)
+        .forEach((key) => caches.delete(key)));
+    }
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

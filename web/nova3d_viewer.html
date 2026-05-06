@@ -1,0 +1,1812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/"
+  }
+}
+</script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; overflow:hidden; background:#0d0d0d; font-family:'Inter',system-ui,sans-serif; color:#e0e0e0; }
+button, input { font: inherit; }
+button:focus-visible, input:focus-visible { outline:2px solid rgba(255,255,255,.55); outline-offset:2px; }
+
+.app { display:flex; width:100%; height:100%; position:relative; }
+
+/* ── Viewport ── */
+.viewport { flex:1; position:relative; background:#000; min-width:0; }
+#canvas-container { width:100%; height:100%; }
+.viewport-action {
+  position:absolute; top:12px; left:12px; z-index:70;
+  width:38px; height:38px; padding:0; border-radius:8px;
+  border:1px solid rgba(255,255,255,.12);
+  background:linear-gradient(180deg,rgba(25,25,25,.78),rgba(12,12,12,.88));
+  color:#f8fafc; cursor:pointer;
+  box-shadow:0 4px 18px rgba(0,0,0,.35);
+  backdrop-filter:blur(18px);
+  transition:background .15s,border-color .15s,transform .15s,opacity .15s;
+  display:grid; place-items:center;
+}
+.viewport-action:hover {
+  background:linear-gradient(180deg,rgba(45,45,45,.88),rgba(22,22,22,.94));
+  border-color:rgba(255,255,255,.26);
+  transform:translateY(-1px);
+}
+.viewport-action::before {
+  content:"";
+  display:block;
+  width:15px;
+  height:15px;
+  border:2px solid currentColor;
+  border-radius:2px;
+}
+body.full-ui .viewport-action::before {
+  width:13px;
+  height:13px;
+  transform:translate(2px,-2px);
+  box-shadow:-6px 6px 0 -2px #f8fafc;
+}
+body.compact .app { display:block; }
+body.compact .viewport { width:100%; height:100%; }
+body.compact .vp-toolbar,
+body.compact .bg-swatches,
+body.compact .edit-toolbar,
+body.compact .flyout,
+body.compact .stats,
+body.compact .mesh-panel {
+  display:none !important;
+}
+body.compact .viewport-action { opacity:.85; }
+body.full-ui .viewport-action { left:12px; }
+
+/* ── Top toolbar ── */
+.vp-toolbar {
+  position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:50;
+  display:flex; gap:4px; max-width:calc(100% - 340px);
+  background:linear-gradient(180deg,rgba(25,25,25,.92),rgba(16,16,16,.96));
+  backdrop-filter:blur(25px); padding:6px 10px; border-radius:8px;
+  border:1px solid rgba(255,255,255,.06);
+  box-shadow:0 4px 20px rgba(0,0,0,.5),0 0 1px rgba(255,255,255,.05);
+}
+.vp-btn {
+  min-width:94px; padding:8px 16px; border:1px solid #2a2a2a; border-radius:6px;
+  font-size:11px; font-weight:600; cursor:pointer; background:transparent;
+  color:#999; transition:all .15s; text-transform:uppercase; letter-spacing:1.5px;
+  font-family:inherit; white-space:nowrap;
+}
+#tbAutoRotate { min-width:154px; }
+.vp-btn:hover { color:#fff; background:#252525; border-color:#333; }
+.vp-btn.active { color:#000; background:linear-gradient(135deg,#fff,#d0d0d0); border-color:rgba(255,255,255,.4); box-shadow:0 0 10px rgba(255,255,255,.1); }
+.vp-btn kbd { font-size:9px; color:#555; margin-left:6px; font-family:inherit; font-weight:600; }
+
+/* ── Background swatches ── */
+.bg-swatches {
+  position:absolute; top:12px; right:12px; z-index:50; display:flex; gap:6px;
+  background:linear-gradient(180deg,rgba(25,25,25,.92),rgba(16,16,16,.96));
+  backdrop-filter:blur(25px); padding:6px 8px; border-radius:8px;
+  border:1px solid rgba(255,255,255,.06); box-shadow:0 4px 20px rgba(0,0,0,.5);
+}
+.bg-swatch {
+  width:22px; height:22px; border-radius:50%;
+  border:2px solid rgba(255,255,255,.15); cursor:pointer; padding:0;
+  transition:transform .12s,border-color .12s,box-shadow .12s;
+}
+.bg-swatch:hover { transform:scale(1.12); border-color:rgba(255,255,255,.4); }
+.bg-swatch.active { border-color:#fff; box-shadow:0 0 0 2px rgba(255,255,255,.25),0 0 8px rgba(255,255,255,.2); }
+
+/* ── Left edit toolbar ── */
+.edit-toolbar {
+  position:absolute; top:70px; left:0; z-index:45;
+  display:flex; flex-direction:column; gap:2px; padding:8px 6px;
+  background:linear-gradient(180deg,rgba(22,22,22,.95),rgba(14,14,14,.98));
+  backdrop-filter:blur(20px);
+  border-right:1px solid rgba(255,255,255,.06);
+  box-shadow:4px 0 20px rgba(0,0,0,.4);
+}
+.et-btn {
+  width:52px; height:46px; background:transparent; border:none;
+  border-radius:4px; color:#666; font-size:18px; cursor:pointer;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+  transition:all .15s; position:relative;
+}
+.et-btn .et-label { font-size:7px; text-transform:uppercase; letter-spacing:.5px; color:#555; font-weight:600; }
+.et-btn:hover { color:#fff; background:#252525; }
+.et-btn.active { color:#fff; background:linear-gradient(180deg,rgba(45,45,45,.9),rgba(35,35,35,.95)); }
+.et-btn .et-tip {
+  display:none; position:absolute; left:60px; top:50%; transform:translateY(-50%);
+  background:linear-gradient(180deg,rgba(35,35,35,.95),rgba(25,25,25,.98));
+  backdrop-filter:blur(20px); color:#e0e0e0; font-size:12px; padding:8px 14px;
+  border-radius:6px; white-space:nowrap; border:1px solid rgba(255,255,255,.08);
+  pointer-events:none; z-index:60; font-weight:500; letter-spacing:.3px;
+  box-shadow:4px 4px 16px rgba(0,0,0,.5);
+}
+.et-btn:hover .et-tip { display:block; }
+
+/* ── Flyout panels ── */
+.flyout {
+  position:absolute; left:66px; width:280px; max-height:80vh;
+  background:linear-gradient(180deg,rgba(30,30,30,.95),rgba(20,20,20,.98));
+  backdrop-filter:blur(25px);
+  border:1px solid rgba(255,255,255,.08); border-radius:8px;
+  padding:16px 18px; overflow-y:auto; display:none; z-index:46;
+  box-shadow:8px 8px 40px rgba(0,0,0,.6),0 0 1px rgba(255,255,255,.05);
+}
+.flyout.open { display:block; animation:flyoutIn .2s ease-out; }
+@keyframes flyoutIn { from{opacity:0;transform:translateX(-8px)} to{opacity:1;transform:translateX(0)} }
+.flyout::-webkit-scrollbar { width:4px; }
+.flyout::-webkit-scrollbar-thumb { background:#333; border-radius:4px; }
+.flyout h3 { font-size:12px; color:#fff; margin-bottom:14px; font-weight:700; text-transform:uppercase; letter-spacing:2px; }
+.flyout h4 { font-size:10px; color:#666; margin:14px 0 8px; text-transform:uppercase; letter-spacing:1.5px; font-weight:600; }
+.fo-btn {
+  display:block; width:100%; padding:10px 14px; margin-bottom:4px;
+  background:transparent; border:1px solid #2a2a2a; border-radius:6px;
+  color:#999; font-size:12px; cursor:pointer; text-align:left; transition:all .15s;
+  font-family:inherit; font-weight:500;
+}
+.fo-btn:hover { border-color:rgba(255,255,255,.1); color:#fff; background:linear-gradient(180deg,rgba(42,42,42,.9),rgba(32,32,32,.95)); }
+.fo-btn.active-tool { border-color:rgba(255,255,255,.3); background:linear-gradient(180deg,rgba(40,40,40,.9),rgba(30,30,30,.95)); color:#fff; }
+.fo-btn kbd { float:right; font-size:10px; color:#555; font-family:inherit; font-weight:600; }
+.fo-row { display:flex; gap:6px; margin-bottom:5px; }
+.fo-row .fo-btn { flex:1; text-align:center; }
+.fo-sep { height:1px; background:#2a2a2a; margin:10px 0; }
+.fo-slider-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.fo-slider-row label { font-size:11px; font-weight:600; width:58px; flex-shrink:0; color:#aaa; }
+.fo-slider-row input[type="range"] { flex:1; height:3px; accent-color:#fff; }
+.fo-slider-row .fo-val { font-size:10px; color:#888; width:36px; text-align:right; font-family:monospace; }
+.fo-slider-row input[type="number"] {
+  flex:1; background:#1e1e1e; border:1px solid #2a2a2a; color:#e0e0e0;
+  padding:6px 8px; border-radius:6px; font-size:12px; font-family:monospace; font-weight:600;
+}
+.fo-slider-row input[type="number"]:focus { border-color:#444; outline:none; }
+.fo-slider-row input[type="color"] { width:36px; height:28px; border:1px solid #333; border-radius:6px; background:none; cursor:pointer; padding:0; }
+.mat-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px; margin-bottom:8px; }
+.mat-btn {
+  padding:8px 10px; border:1px solid #2a2a2a; border-radius:6px; background:#1e1e1e;
+  color:#999; font-size:10px; cursor:pointer; text-align:center; transition:all .15s; font-family:inherit;
+}
+.mat-btn:hover { border-color:rgba(255,255,255,.1); color:#fff; background:linear-gradient(180deg,rgba(42,42,42,.9),rgba(32,32,32,.95)); }
+.mat-btn .swatch { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px; vertical-align:middle; border:1px solid rgba(255,255,255,.15); }
+
+/* ── Stats bar ── */
+.stats {
+  position:absolute; bottom:22px; left:50%; transform:translateX(-50%);
+  display:flex; gap:24px;
+  background:linear-gradient(180deg,rgba(25,25,25,.92),rgba(16,16,16,.96));
+  backdrop-filter:blur(25px); padding:12px 28px; border-radius:8px;
+  border:1px solid rgba(255,255,255,.06); z-index:50;
+  box-shadow:0 4px 20px rgba(0,0,0,.5);
+}
+.stat { text-align:center; }
+.stat-val { font-size:18px; font-weight:700; color:#fff; }
+.stat-lbl { font-size:8px; text-transform:uppercase; letter-spacing:1.5px; color:#555; margin-top:2px; }
+
+/* ── Loading overlay ── */
+.loading-overlay {
+  position:absolute; inset:0; background:rgba(13,13,13,.92);
+  backdrop-filter:blur(20px); display:none; align-items:center;
+  justify-content:center; flex-direction:column; gap:16px; z-index:100;
+}
+.loading-overlay.active { display:flex; }
+.loading-bar-track { width:240px; height:3px; background:#2a2a2a; border-radius:99px; overflow:hidden; }
+.loading-bar-fill { height:100%; width:0%; border-radius:99px; background:linear-gradient(90deg,#888,#fff); transition:width .4s ease; }
+.loading-label { font-size:13px; color:#888; letter-spacing:1px; }
+
+/* ── Right mesh panel ── */
+.mesh-panel {
+  width:clamp(240px,22vw,320px); flex-shrink:0;
+  background:linear-gradient(180deg,rgba(22,22,22,.98),rgba(14,14,14,.99));
+  border-left:1px solid #2a2a2a;
+  display:flex; flex-direction:column;
+  box-shadow:-4px 0 30px rgba(0,0,0,.5);
+}
+.mesh-panel-header {
+  padding:16px 16px 14px; border-bottom:1px solid #2a2a2a;
+  background:linear-gradient(180deg,rgba(28,28,28,.95),rgba(18,18,18,.98));
+}
+.mesh-panel-header h2 { font-size:13px; font-weight:600; letter-spacing:2px; color:#fff; margin-bottom:8px; text-transform:uppercase; }
+.mesh-stats { font-size:10px; color:#666; margin-bottom:8px; }
+.mesh-search {
+  width:100%; padding:10px 12px; border:1px solid #2a2a2a; border-radius:6px;
+  background:#1e1e1e; color:#e0e0e0; font-size:11px; font-family:inherit; transition:all .2s;
+}
+.mesh-search:focus { outline:none; border-color:rgba(255,255,255,.15); }
+.mesh-list { flex:1; overflow-y:auto; padding:8px; scroll-behavior:smooth; }
+.mesh-list::-webkit-scrollbar { width:3px; }
+.mesh-list::-webkit-scrollbar-thumb { background:#333; border-radius:4px; }
+.mesh-item {
+  padding:9px 12px; margin-bottom:2px; background:transparent; border:1px solid transparent;
+  border-radius:4px; cursor:pointer; transition:all .15s;
+}
+.mesh-item:hover { background:#252525; }
+.mesh-item.selected { border-color:rgba(255,255,255,.3); background:linear-gradient(180deg,rgba(35,35,35,.9),rgba(25,25,25,.95)); }
+.mesh-item.hidden-mesh { opacity:.35; }
+.mesh-item-name { font-size:11px; color:#ccc; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mesh-item-info { font-size:9px; color:#666; }
+.selection-toolbar {
+  display:none; padding:10px 12px 12px;
+  background:linear-gradient(180deg,rgba(24,24,24,.96),rgba(14,14,14,.98));
+  border-top:1px solid rgba(255,255,255,.08);
+  box-shadow:0 -10px 28px rgba(0,0,0,.34);
+}
+body.full-ui .selection-toolbar.has-selection { display:block; }
+.selection-summary {
+  display:flex; justify-content:space-between; align-items:baseline; gap:12px;
+  margin-bottom:8px;
+}
+.selection-summary h4 {
+  font-size:10px; color:#9aa0a6; letter-spacing:.6px; font-weight:700;
+}
+.selection-count { font-size:10px; color:#777; white-space:nowrap; }
+.action-section { margin-top:9px; }
+.action-section:first-of-type { margin-top:0; }
+.action-heading {
+  margin-bottom:5px; font-size:8px; color:#666; letter-spacing:1.8px;
+  text-transform:uppercase; font-weight:700;
+}
+.action-grid { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+.select-buttons { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+.select-buttons .action-btn:last-child { width:fit-content; min-width:72px; }
+.action-btn {
+  padding:6px 8px; border:1px solid #2a2a2a; border-radius:6px; font-size:10px;
+  cursor:pointer; background:#1e1e1e; color:#aaa; text-align:left; transition:all .15s;
+  font-family:inherit; font-weight:600; display:flex; align-items:center; gap:7px;
+  min-height:32px;
+}
+.action-btn .icon { width:14px; height:14px; color:#d0d0d0; flex:0 0 14px; }
+.action-btn .icon svg { width:14px; height:14px; display:block; stroke:currentColor; }
+.action-btn:hover { border-color:rgba(255,255,255,.1); color:#fff; background:linear-gradient(180deg,rgba(42,42,42,.9),rgba(32,32,32,.95)); }
+.action-btn:disabled {
+  cursor:not-allowed; opacity:.42; color:#777; background:#191919;
+}
+.action-btn.active {
+  border-color:rgba(102,178,255,.55); color:#fff;
+  background:linear-gradient(180deg,rgba(37,77,122,.9),rgba(24,48,78,.96));
+  box-shadow:inset 0 0 0 1px rgba(102,178,255,.18);
+}
+.action-btn.active:disabled {
+  opacity:.78;
+}
+
+@media (max-width: 1280px) {
+  .vp-toolbar {
+    left:72px; transform:none; max-width:calc(100% - 96px);
+  }
+  .bg-swatches {
+    top:68px; right:12px;
+  }
+  .vp-btn {
+    min-width:82px; padding:8px 12px; letter-spacing:1.1px;
+  }
+  #tbAutoRotate { min-width:132px; }
+  .mesh-panel { width:240px; }
+  .stats { bottom:20px; }
+}
+
+@media (max-width: 1040px) {
+  .vp-toolbar {
+    right:12px; max-width:none; overflow:hidden;
+  }
+  .vp-btn {
+    flex:1 1 0; min-width:0; padding:8px 10px; font-size:10px;
+  }
+  .vp-btn kbd { display:none; }
+  #tbAutoRotate { min-width:112px; }
+  .bg-swatches {
+    top:64px; padding:5px 7px; gap:5px;
+  }
+  .bg-swatch { width:20px; height:20px; }
+  .edit-toolbar {
+    top:126px; padding:6px 4px;
+  }
+  .et-btn {
+    width:42px; height:42px; font-size:16px;
+  }
+  .et-btn .et-label { font-size:6px; }
+  .et-btn .et-tip { left:50px; }
+  .flyout { left:54px; width:min(280px,calc(100% - 80px)); }
+  .mesh-panel {
+    width:220px;
+  }
+  .mesh-panel-header { padding:14px 14px 12px; }
+  .mesh-panel-header h2 { font-size:12px; letter-spacing:1.6px; }
+  .selection-toolbar { padding:10px 12px 12px; }
+  .action-grid, .select-buttons { grid-template-columns:1fr; }
+  .select-buttons .action-btn:last-child { width:100%; }
+}
+
+@media (max-width: 760px) {
+  .app { display:block; }
+  .viewport { width:100%; height:100%; }
+  .mesh-panel {
+    position:absolute; right:10px; bottom:10px; z-index:48;
+    width:min(320px,calc(100% - 76px)); height:38vh;
+    border:1px solid #2a2a2a; border-radius:8px;
+    box-shadow:0 8px 32px rgba(0,0,0,.55);
+  }
+  .mesh-panel-header { padding:12px; }
+  .mesh-search { padding:8px 10px; }
+  .selection-toolbar { padding:9px 10px 10px; }
+  .selection-summary { margin-bottom:7px; }
+  .vp-toolbar {
+    left:62px; right:10px; top:10px; padding:5px; gap:3px;
+  }
+  .vp-btn {
+    padding:7px 6px; font-size:9px; letter-spacing:.8px;
+  }
+  #tbAutoRotate { min-width:82px; }
+  .bg-swatches {
+    left:62px; right:auto; top:58px; max-width:calc(100% - 74px);
+  }
+  .edit-toolbar { top:104px; }
+  .stats {
+    left:50%; bottom:calc(38vh + 22px); gap:16px; padding:10px 20px;
+  }
+  .stat-val { font-size:16px; }
+}
+
+@media (max-height: 620px) {
+  .stats { display:none !important; }
+  .edit-toolbar {
+    top:104px; max-height:calc(100% - 112px); overflow-y:auto;
+  }
+  .et-btn { height:38px; }
+  .flyout { max-height:calc(100vh - 120px); }
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Viewport ── -->
+  <div class="viewport" id="viewport">
+    <div id="canvas-container"></div>
+    <button class="viewport-action" id="fullscreenToggle" type="button" title="Open full editor" aria-label="Open full editor"></button>
+
+    <!-- Top toolbar -->
+    <div class="vp-toolbar">
+      <button class="vp-btn active" id="tbOrbit">Orbit</button>
+      <button class="vp-btn" id="tbMove">Move<kbd>G</kbd></button>
+      <button class="vp-btn" id="tbRotate">Rotate<kbd>R</kbd></button>
+      <button class="vp-btn" id="tbScale">Scale<kbd>S</kbd></button>
+      <button class="vp-btn" id="tbAutoRotate" onclick="toggleAutoRotate()">Auto-rotate: ON</button>
+    </div>
+
+    <!-- Background swatches -->
+    <div class="bg-swatches" id="bgSwatches"></div>
+
+    <!-- Left edit toolbar -->
+    <div class="edit-toolbar">
+      <button class="et-btn" data-flyout="flyTransform"><span>⇔</span><span class="et-label">Transform</span><div class="et-tip">Transform</div></button>
+      <button class="et-btn" data-flyout="flyMesh"><span>⬡</span><span class="et-label">Mesh</span><div class="et-tip">Mesh</div></button>
+      <button class="et-btn" data-flyout="flyModifiers"><span>⊞</span><span class="et-label">Modifiers</span><div class="et-tip">Modifiers</div></button>
+      <button class="et-btn" data-flyout="flyMaterials"><span>◉</span><span class="et-label">Materials</span><div class="et-tip">Materials</div></button>
+      <button class="et-btn" data-flyout="flyDisplay"><span>👁</span><span class="et-label">Display</span><div class="et-tip">Display</div></button>
+      <button class="et-btn" data-flyout="flySculpt"><span>✏</span><span class="et-label">Sculpt</span><div class="et-tip">Sculpt</div></button>
+      <button class="et-btn" data-flyout="flySnap"><span>⊟</span><span class="et-label">Snap</span><div class="et-tip">Snap &amp; Pivot</div></button>
+    </div>
+
+    <!-- Transform flyout -->
+    <div class="flyout" id="flyTransform" style="top:70px">
+      <h3>Transform</h3>
+      <h4>Position</h4>
+      <div class="fo-slider-row"><label style="color:#f66">X</label><input type="number" id="tfPosX" step="0.001" value="0" onchange="applyNumericTransform()"></div>
+      <div class="fo-slider-row"><label style="color:#6f6">Y</label><input type="number" id="tfPosY" step="0.001" value="0" onchange="applyNumericTransform()"></div>
+      <div class="fo-slider-row"><label style="color:#68f">Z</label><input type="number" id="tfPosZ" step="0.001" value="0" onchange="applyNumericTransform()"></div>
+      <h4>Rotation (deg)</h4>
+      <div class="fo-slider-row"><label style="color:#f66">RX</label><input type="number" id="tfRotX" step="1" value="0" onchange="applyNumericTransform()"></div>
+      <div class="fo-slider-row"><label style="color:#6f6">RY</label><input type="number" id="tfRotY" step="1" value="0" onchange="applyNumericTransform()"></div>
+      <div class="fo-slider-row"><label style="color:#68f">RZ</label><input type="number" id="tfRotZ" step="1" value="0" onchange="applyNumericTransform()"></div>
+      <h4>Scale</h4>
+      <div class="fo-slider-row"><label style="color:#f66">SX</label><input type="number" id="tfScaleX" step="0.01" value="1" min="0.001" onchange="applyNumericTransform()"></div>
+      <div class="fo-slider-row"><label style="color:#6f6">SY</label><input type="number" id="tfScaleY" step="0.01" value="1" min="0.001" onchange="applyNumericTransform()"></div>
+      <div class="fo-slider-row"><label style="color:#68f">SZ</label><input type="number" id="tfScaleZ" step="0.01" value="1" min="0.001" onchange="applyNumericTransform()"></div>
+      <div class="fo-slider-row"><label style="color:#aaa;font-size:9px">Uniform</label><input type="number" id="tfScale" step="0.01" value="1" min="0.001" onchange="applyUniformScale()"></div>
+      <div class="fo-sep"></div>
+      <button class="fo-btn" onclick="resetTransform()">Reset Transform</button>
+      <button class="fo-btn" onclick="readCurrentTransform()">Read from Selected</button>
+      <div class="fo-sep"></div>
+      <h4>Mirror</h4>
+      <div class="fo-row">
+        <button class="fo-btn" onclick="mirrorSelection('x')">X</button>
+        <button class="fo-btn" onclick="mirrorSelection('y')">Y</button>
+        <button class="fo-btn" onclick="mirrorSelection('z')">Z</button>
+      </div>
+      <h4>Align to 0</h4>
+      <div class="fo-row">
+        <button class="fo-btn" onclick="alignToAxis('x')">X</button>
+        <button class="fo-btn" onclick="alignToAxis('y')">Y</button>
+        <button class="fo-btn" onclick="alignToAxis('z')">Z</button>
+      </div>
+      <button class="fo-btn" onclick="duplicateSelection()">Duplicate <kbd>Shift+D</kbd></button>
+    </div>
+
+    <!-- Mesh flyout -->
+    <div class="flyout" id="flyMesh" style="top:116px">
+      <h3>Mesh</h3>
+      <button class="fo-btn" onclick="deleteSelected()">Delete Selected <kbd>X</kbd></button>
+      <button class="fo-btn" onclick="duplicateSelection()">Duplicate <kbd>Shift+D</kbd></button>
+      <button class="fo-btn" onclick="mergeSelected()">Merge Selected</button>
+      <button class="fo-btn" onclick="separateByLooseParts()">Separate Loose Parts</button>
+      <div class="fo-sep"></div>
+      <button class="fo-btn" onclick="flipNormals()">Flip Normals</button>
+      <button class="fo-btn" onclick="centerOrigin()">Center Origin</button>
+      <button class="fo-btn" onclick="recalcNormals()">Recalculate Normals</button>
+    </div>
+
+    <!-- Modifiers flyout -->
+    <div class="flyout" id="flyModifiers" style="top:162px">
+      <h3>Modifiers</h3>
+      <h4>Geometry</h4>
+      <button class="fo-btn" onclick="subdivideSelected(1)">Subdivide ×1</button>
+      <button class="fo-btn" onclick="subdivideSelected(2)">Subdivide ×2</button>
+      <button class="fo-btn" onclick="smoothSelected(3)">Smooth 3 iter</button>
+      <button class="fo-btn" onclick="smoothSelected(10)">Smooth 10 iter</button>
+      <h4>Reduce</h4>
+      <button class="fo-btn" onclick="decimateSelected(0.5)">Decimate 50%</button>
+      <button class="fo-btn" onclick="decimateSelected(0.25)">Decimate 25%</button>
+      <button class="fo-btn" onclick="decimateSelected(0.1)">Decimate 10%</button>
+      <h4>Mirror Modifier</h4>
+      <div class="fo-row">
+        <button class="fo-btn" onclick="applyMirrorModifier('x')">X</button>
+        <button class="fo-btn" onclick="applyMirrorModifier('y')">Y</button>
+        <button class="fo-btn" onclick="applyMirrorModifier('z')">Z</button>
+      </div>
+    </div>
+
+    <!-- Materials flyout -->
+    <div class="flyout" id="flyMaterials" style="top:208px">
+      <h3>Materials</h3>
+      <h4>Metals</h4>
+      <div class="mat-grid">
+        <button class="mat-btn" onclick="applyMaterialPreset('Gold')"><span class="swatch" style="background:#D4AF37"></span>Gold</button>
+        <button class="mat-btn" onclick="applyMaterialPreset('Rose Gold')"><span class="swatch" style="background:#B76E79"></span>Rose Gold</button>
+        <button class="mat-btn" onclick="applyMaterialPreset('White Gold')"><span class="swatch" style="background:#E8E8E8"></span>White Gold</button>
+        <button class="mat-btn" onclick="applyMaterialPreset('Platinum')"><span class="swatch" style="background:#E5E4E2"></span>Platinum</button>
+        <button class="mat-btn" onclick="applyMaterialPreset('Silver')"><span class="swatch" style="background:#C0C0C0"></span>Silver</button>
+        <button class="mat-btn" onclick="applyMaterialPreset('Copper')"><span class="swatch" style="background:#B87333"></span>Copper</button>
+      </div>
+      <h4>Gems</h4>
+      <div class="mat-grid">
+        <button class="mat-btn" onclick="applyMaterialPreset('Diamond')"><span class="swatch" style="background:#fff;border-color:#888"></span>Diamond</button>
+        <button class="mat-btn" onclick="applyMaterialPreset('Ruby')"><span class="swatch" style="background:#E0115F"></span>Ruby</button>
+        <button class="mat-btn" onclick="applyMaterialPreset('Emerald')"><span class="swatch" style="background:#50C878"></span>Emerald</button>
+        <button class="mat-btn" onclick="applyMaterialPreset('Sapphire')"><span class="swatch" style="background:#0F52BA"></span>Sapphire</button>
+        <button class="mat-btn" onclick="applyMaterialPreset('Amethyst')"><span class="swatch" style="background:#9966CC"></span>Amethyst</button>
+        <button class="mat-btn" onclick="applyMaterialPreset('Topaz')"><span class="swatch" style="background:#FFC87C"></span>Topaz</button>
+      </div>
+      <div class="fo-sep"></div>
+      <h4>Custom</h4>
+      <div class="fo-slider-row"><label>Color</label><input type="color" id="customMatColor" value="#D4AF37"></div>
+      <div class="fo-slider-row">
+        <label>Metal</label>
+        <input type="range" id="customMetalness" min="0" max="1" step="0.01" value="0.95" oninput="document.getElementById('customMetalnessVal').textContent=parseFloat(this.value).toFixed(2)">
+        <span class="fo-val" id="customMetalnessVal">0.95</span>
+      </div>
+      <div class="fo-slider-row">
+        <label>Rough</label>
+        <input type="range" id="customRoughness" min="0" max="1" step="0.01" value="0.15" oninput="document.getElementById('customRoughnessVal').textContent=parseFloat(this.value).toFixed(2)">
+        <span class="fo-val" id="customRoughnessVal">0.15</span>
+      </div>
+      <div class="fo-slider-row">
+        <label>Coat</label>
+        <input type="range" id="customClearcoat" min="0" max="1" step="0.01" value="0.3" oninput="document.getElementById('customClearcoatVal').textContent=parseFloat(this.value).toFixed(2)">
+        <span class="fo-val" id="customClearcoatVal">0.30</span>
+      </div>
+      <button class="fo-btn" onclick="applyCustomMaterial()" style="border-color:#fff;color:#fff;margin-top:4px">Apply Custom</button>
+    </div>
+
+    <!-- Display flyout -->
+    <div class="flyout" id="flyDisplay" style="top:254px">
+      <h3>Display</h3>
+      <button class="fo-btn" id="togWireframe" onclick="toggleWireframe()">Wireframe</button>
+      <button class="fo-btn" id="togFlatShade" onclick="toggleFlatShading()">Flat Shading</button>
+      <button class="fo-btn" id="togXray" onclick="toggleXray()">X-Ray</button>
+      <button class="fo-btn" id="togBBox" onclick="toggleBoundingBox()">Bounding Box</button>
+      <button class="fo-btn" id="togNormals" onclick="toggleNormals()">Show Normals</button>
+      <div class="fo-sep"></div>
+      <button class="fo-btn" onclick="toggleAutoRotate()">Toggle Auto-Rotate</button>
+      <div class="fo-slider-row">
+        <label>Exposure</label>
+        <input type="range" id="exposureSlider" min="0.1" max="3" step="0.05" value="1.1" oninput="setExposure(this.value)">
+        <span class="fo-val" id="exposureVal">1.1</span>
+      </div>
+    </div>
+
+    <!-- Sculpt flyout -->
+    <div class="flyout" id="flySculpt" style="top:300px">
+      <h3>Sculpt</h3>
+      <button class="fo-btn active-tool" id="sculptGrab" onclick="setSculptTool('grab')">Grab</button>
+      <button class="fo-btn" id="sculptSmooth" onclick="setSculptTool('smooth')">Smooth</button>
+      <button class="fo-btn" id="sculptInflate" onclick="setSculptTool('inflate')">Inflate</button>
+      <button class="fo-btn" id="sculptFlatten" onclick="setSculptTool('flatten')">Flatten</button>
+      <div class="fo-sep"></div>
+      <div class="fo-slider-row">
+        <label>Size</label>
+        <input type="range" id="brushSize" min="0.02" max="1" step="0.01" value="0.2" oninput="document.getElementById('brushSizeVal').textContent=parseFloat(this.value).toFixed(2)">
+        <span class="fo-val" id="brushSizeVal">0.20</span>
+      </div>
+      <div class="fo-slider-row">
+        <label>Strength</label>
+        <input type="range" id="brushStrength" min="0.01" max="1" step="0.01" value="0.3" oninput="document.getElementById('brushStrengthVal').textContent=parseFloat(this.value).toFixed(2)">
+        <span class="fo-val" id="brushStrengthVal">0.30</span>
+      </div>
+      <button class="fo-btn" id="sculptModeBtn" onclick="toggleSculptMode()" style="border-color:#f80;color:#f80;margin-top:4px">Enable Sculpt Mode</button>
+    </div>
+
+    <!-- Snap flyout -->
+    <div class="flyout" id="flySnap" style="top:346px">
+      <h3>Snap &amp; Pivot</h3>
+      <button class="fo-btn" id="togGridSnap" onclick="toggleGridSnap()">Grid Snap: OFF</button>
+      <div class="fo-slider-row">
+        <label>Grid Size</label>
+        <input type="range" id="gridSizeSlider" min="0.01" max="0.5" step="0.01" value="0.1" oninput="gridSize=parseFloat(this.value);document.getElementById('gridSizeVal').textContent=parseFloat(this.value).toFixed(2)">
+        <span class="fo-val" id="gridSizeVal">0.10</span>
+      </div>
+      <div class="fo-sep"></div>
+      <h4>Pivot</h4>
+      <button class="fo-btn active-tool" id="pivotMedian" onclick="setPivotMode('median')">Median Point</button>
+      <button class="fo-btn" id="pivotIndividual" onclick="setPivotMode('individual')">Individual Origins</button>
+      <button class="fo-btn" id="pivotWorld" onclick="setPivotMode('world')">World Origin</button>
+    </div>
+
+    <!-- Loading overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+      <div class="loading-bar-track"><div class="loading-bar-fill" id="loadingBarFill"></div></div>
+      <div class="loading-label" id="loadingLabel">Loading model...</div>
+      <div id="loadingError" style="display:none;margin-top:12px;max-width:360px;padding:10px 16px;background:rgba(248,113,113,.1);border:1px solid #f87171;border-radius:6px;font-size:11px;color:#f87171;word-break:break-all;text-align:center"></div>
+    </div>
+
+    <!-- Stats bar -->
+    <div class="stats" id="statsBar" style="display:none">
+      <div class="stat"><div class="stat-val" id="statMeshes">0</div><div class="stat-lbl">Meshes</div></div>
+      <div class="stat"><div class="stat-val" id="statVerts">0</div><div class="stat-lbl">Vertices</div></div>
+    </div>
+
+  </div>
+
+  <!-- ── Right mesh panel ── -->
+  <div class="mesh-panel">
+    <div class="mesh-panel-header">
+      <h2>Model Parts</h2>
+      <div class="mesh-stats" id="meshStats">No model loaded</div>
+      <input type="text" class="mesh-search" id="meshSearch" placeholder="Search meshes...">
+    </div>
+    <div class="mesh-list" id="meshList">
+      <div style="text-align:center;color:#444;font-size:10px;padding:20px">Load a model to see parts</div>
+    </div>
+    <div class="selection-toolbar" id="selectionActions" aria-live="polite">
+      <div class="selection-summary">
+        <h4 id="selectionCount">0 selected</h4>
+      </div>
+      <div class="action-section">
+        <div class="action-heading">Visibility</div>
+        <div class="action-grid">
+          <button class="action-btn" id="actVisibility" title="Hide or unhide selected parts">
+            <span class="icon" id="actVisibilityIcon"></span><span id="actVisibilityLabel">Hide</span>
+          </button>
+          <button class="action-btn" id="actShowAll" title="Show every hidden part">
+            <span class="icon" data-icon="show-all"></span><span>Show All</span>
+          </button>
+          <button class="action-btn" id="actIsolate" title="Show only the selected parts">
+            <span class="icon" data-icon="isolate"></span><span>Isolate</span>
+          </button>
+        </div>
+      </div>
+      <div class="action-section">
+        <div class="action-heading">Select</div>
+        <div class="select-buttons">
+          <button class="action-btn" id="selectAll" title="Select every part">
+            <span class="icon" data-icon="select-all"></span><span>All</span>
+          </button>
+          <button class="action-btn" id="selectNone" title="Clear the current selection">
+            <span class="icon" data-icon="clear"></span><span>None</span>
+          </button>
+          <button class="action-btn" id="selectInvert" title="Select every unselected part">
+            <span class="icon" data-icon="invert"></span><span>Invert</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- .app -->
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls }    from 'three/addons/controls/OrbitControls.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
+import { GLTFLoader }        from 'three/addons/loaders/GLTFLoader.js';
+import { RGBELoader }        from 'three/addons/loaders/RGBELoader.js';
+import { mergeGeometries }   from 'three/addons/utils/BufferGeometryUtils.js';
+
+// ── Procedural noise for metal textures ──────────────────────────────────────
+function smoothNoise(x, y, seed = 0) {
+  const n = Math.sin(x * 12.9898 + y * 78.233 + seed) * 43758.5453;
+  return n - Math.floor(n);
+}
+function interpNoise(x, y, seed = 0) {
+  const x0 = Math.floor(x), y0 = Math.floor(y);
+  const fx = x - x0, fy = y - y0;
+  const sx = fx*fx*(3-2*fx), sy = fy*fy*(3-2*fy);
+  return (smoothNoise(x0,y0,seed)*(1-sx) + smoothNoise(x0+1,y0,seed)*sx)*(1-sy) +
+         (smoothNoise(x0,y0+1,seed)*(1-sx) + smoothNoise(x0+1,y0+1,seed)*sx)*sy;
+}
+function fractalNoise(x, y, oct=6, persist=0.5, seed=0) {
+  let total=0, freq=1, amp=1, max=0;
+  for (let i=0; i<oct; i++) {
+    total += interpNoise(x*freq, y*freq, seed+i*100)*amp;
+    max += amp; amp *= persist; freq *= 2;
+  }
+  return total / max;
+}
+function genNormalMap(size=512, scale=8, intensity=0.3, seed=Math.random()*1000) {
+  const cvs = document.createElement('canvas'); cvs.width = cvs.height = size;
+  const ctx = cvs.getContext('2d'), img = ctx.createImageData(size,size), d = img.data;
+  const hm = new Float32Array(size*size);
+  for (let y=0; y<size; y++) for (let x=0; x<size; x++) {
+    const nx=x/size*scale, ny=y/size*scale;
+    hm[y*size+x] = fractalNoise(nx,ny,6,.5,seed)*.6
+                 + fractalNoise(nx*4,ny*4,4,.4,seed+500)*.25
+                 + fractalNoise(nx*16,ny*16,3,.3,seed+1000)*.15;
+  }
+  for (let y=0; y<size; y++) for (let x=0; x<size; x++) {
+    const i=(y*size+x)*4;
+    const gh = (px,py) => hm[((py%size+size)%size)*size+((px%size+size)%size)];
+    const dx=(gh(x+1,y-1)+2*gh(x+1,y)+gh(x+1,y+1)-gh(x-1,y-1)-2*gh(x-1,y)-gh(x-1,y+1))*intensity;
+    const dy=(gh(x-1,y+1)+2*gh(x,y+1)+gh(x+1,y+1)-gh(x-1,y-1)-2*gh(x,y-1)-gh(x+1,y-1))*intensity;
+    const len=Math.sqrt(dx*dx+dy*dy+1);
+    d[i]=(-dx/len*.5+.5)*255; d[i+1]=(-dy/len*.5+.5)*255; d[i+2]=(1/len*.5+.5)*255; d[i+3]=255;
+  }
+  ctx.putImageData(img,0,0);
+  const t = new THREE.CanvasTexture(cvs);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2,2); return t;
+}
+function genRoughnessMap(size=512, base=0.15, variation=0.1, seed=Math.random()*1000) {
+  const cvs = document.createElement('canvas'); cvs.width = cvs.height = size;
+  const ctx = cvs.getContext('2d'), img = ctx.createImageData(size,size), d = img.data;
+  for (let y=0; y<size; y++) for (let x=0; x<size; x++) {
+    const i=(y*size+x)*4;
+    const nx=x/size*12, ny=y/size*12;
+    const noise = fractalNoise(nx,ny,5,.5,seed) + fractalNoise(nx*8,ny*8,3,.3,seed+777)*.3;
+    const v = Math.max(0,Math.min(1, base+(noise-.5)*variation*2))*255;
+    d[i]=d[i+1]=d[i+2]=v; d[i+3]=255;
+  }
+  ctx.putImageData(img,0,0);
+  const t = new THREE.CanvasTexture(cvs);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2,2); return t;
+}
+
+// ── Category color system ─────────────────────────────────────────────────────
+const gemRe = /diamond|gem|stone|crystal|jewel|brill|ruby|emerald|sapphire|topaz|opal|garnet|amethyst|pearl|cz|cubic|solitaire|pave|prong_stone|accent_stone|center_stone|main_stone/i;
+const GEM_COLOR = 0x4a90d9;
+const PALETTE = [0x77dd77,0xef4444,0xf97316,0xeab308,0x84cc16,0x10b981,0x06b6d4,0x6366f1,0x8b5cf6,0xd946ef,0xec4899,0xf43f5e,0xb45309,0x166534,0x1e40af,0x6b21a8,0xfb923c,0xfbbf24,0x4ade80,0x22d3ee,0x60a5fa,0xa78bfa,0xf472b6,0xfca5a5,0x65a30d,0x0d9488,0x7c3aed,0xdb2777,0x9f1239,0x047857];
+
+function shapeFingerprint(geo) {
+  if (!geo.boundingBox) geo.computeBoundingBox();
+  const sz = new THREE.Vector3(); geo.boundingBox.getSize(sz);
+  const dims = [sz.x,sz.y,sz.z].sort((a,b)=>a-b).map(v=>v.toFixed(3));
+  const verts = geo.attributes.position ? geo.attributes.position.count : 0;
+  const idx   = geo.index ? geo.index.count : verts;
+  return `${verts}_${idx}_${dims.join('_')}`;
+}
+function catMat(color, isGem) {
+  return new THREE.MeshStandardMaterial({ color, metalness:0, roughness:isGem?.6:.8, flatShading:true, envMap:null, side:THREE.DoubleSide });
+}
+function assignCategoryColors(model) {
+  const sigToColor = new Map(); let nextIdx=0, total=0, gems=0;
+  model.traverse(child => {
+    if (!child.isMesh || !child.geometry) return;
+    total++;
+    if (gemRe.test(child.name||'')) { child.material = catMat(GEM_COLOR,true); gems++; return; }
+    const sig = shapeFingerprint(child.geometry);
+    let color;
+    if (sigToColor.has(sig)) { color = sigToColor.get(sig); }
+    else { color = PALETTE[nextIdx++ % PALETTE.length]; sigToColor.set(sig,color); }
+    child.material = catMat(color, false);
+  });
+  return { totalMeshes:total, gemMeshes:gems, categories:sigToColor.size };
+}
+
+// ── Camera framing ────────────────────────────────────────────────────────────
+function frameCameraToModel(model, fill=0.8) {
+  const box = new THREE.Box3().setFromObject(model);
+  if (box.isEmpty()) return;
+  const sphere = new THREE.Sphere(); box.getBoundingSphere(sphere);
+  const fovRad = camera.fov * Math.PI / 180;
+  const vDist = sphere.radius / Math.sin(fovRad/2);
+  const hDist = sphere.radius / Math.sin(Math.atan(Math.tan(fovRad/2)*camera.aspect));
+  const dist  = Math.max(vDist,hDist) / fill;
+  const dir   = new THREE.Vector3(0,.18,1).normalize();
+  camera.position.copy(sphere.center).addScaledVector(dir, dist);
+  camera.near = Math.max(0.01, dist*.001);
+  camera.far  = Math.max(100, dist*50);
+  camera.updateProjectionMatrix();
+  controls.target.copy(sphere.center);
+  controls.update();
+}
+
+// ── Background presets ────────────────────────────────────────────────────────
+const BG_PRESETS = {
+  cream:    { swatch:'#f7e6b0', stops:['#f7e6b0','#e6cf85','#cdb56a'] },
+  peach:    { swatch:'#ffd6b3', stops:['#ffd6b3','#f6b48a','#d98b65'] },
+  pink:     { swatch:'#f3c2dc', stops:['#f3c2dc','#e09cc4','#c97cae'] },
+  mint:     { swatch:'#c6efd1', stops:['#c6efd1','#9bd9b3','#74b990'] },
+  sky:      { swatch:'#cfe6f7', stops:['#cfe6f7','#a7cdee','#7eb1d8'] },
+  lavender: { swatch:'#e0d4f7', stops:['#e0d4f7','#bfa8e6','#9d83cf'] },
+  studio:   { swatch:'#1a1a2e', stops:['#1a1a2e','#0f0f1a','#060610'] },
+};
+window.applyBgPreset = function(name) {
+  const p = BG_PRESETS[name] || BG_PRESETS.cream;
+  const cvs = document.createElement('canvas'); cvs.width = cvs.height = 512;
+  const ctx = cvs.getContext('2d');
+  const g = ctx.createRadialGradient(256,256,0,256,256,420);
+  g.addColorStop(0,p.stops[0]); g.addColorStop(.6,p.stops[1]); g.addColorStop(1,p.stops[2]);
+  ctx.fillStyle = g; ctx.fillRect(0,0,512,512);
+  if (scene) scene.background = new THREE.CanvasTexture(cvs);
+  try { localStorage.setItem('nova3d_bgPreset', name); } catch(e){}
+  document.querySelectorAll('.bg-swatch').forEach(el => el.classList.toggle('active', el.dataset.preset===name));
+};
+
+function buildBgSwatches() {
+  const host = document.getElementById('bgSwatches'); if (!host) return;
+  let current; try { current = localStorage.getItem('nova3d_bgPreset') || 'cream'; } catch(e){ current='cream'; }
+  host.innerHTML = Object.entries(BG_PRESETS).map(([name,p]) =>
+    `<button class="bg-swatch${name===current?' active':''}" data-preset="${name}" title="${name}" style="background:${p.swatch}" onclick="applyBgPreset('${name}')"></button>`
+  ).join('');
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let scene, camera, renderer, controls, transformControls;
+let modelGroup, transformProxy;
+let envMap = null;
+const container = document.getElementById('canvas-container');
+const raycaster  = new THREE.Raycaster();
+const mouse      = new THREE.Vector2();
+
+let loadedMeshes        = [];       // [{mesh, originalMaterial, name, geometry}]
+let selectedMeshIndices = new Set();
+let lastSelectedMeshIndex = null;
+let lastSelectionAction = null;
+
+const highlightMat = new THREE.MeshStandardMaterial({
+  color:0x00ffff, emissive:0x004444, wireframe:false, transparent:true, opacity:0.7
+});
+
+function iconSvg(name) {
+  const attrs = 'viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+  const icons = {
+    'eye': '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="3"/>',
+    'eye-off': '<path d="m3 3 18 18"/><path d="M10.6 10.6a3 3 0 0 0 3.8 3.8"/><path d="M9.9 5.2A10.8 10.8 0 0 1 12 5c6.5 0 10 7 10 7a18.2 18.2 0 0 1-2.7 3.6"/><path d="M6.6 6.6C3.6 8.7 2 12 2 12s3.5 7 10 7c1.3 0 2.5-.2 3.6-.6"/>',
+    'isolate': '<path d="M4 7V4h3"/><path d="M17 4h3v3"/><path d="M20 17v3h-3"/><path d="M7 20H4v-3"/><rect x="9" y="9" width="6" height="6" rx="1"/>',
+    'show-all': '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="3"/><path d="M4 4h4"/><path d="M4 4v4"/><path d="M20 20h-4"/><path d="M20 20v-4"/>',
+    'select-all': '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 12h8"/><path d="M12 8v8"/>',
+    'clear': '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="m9 9 6 6"/><path d="m15 9-6 6"/>',
+    'invert': '<path d="M7 7h10v10H7z"/><path d="M4 4h6"/><path d="M4 4v6"/><path d="M20 20h-6"/><path d="M20 20v-6"/>',
+  };
+  return `<svg ${attrs}>${icons[name] || ''}</svg>`;
+}
+
+function renderSelectionIcons() {
+  document.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = iconSvg(el.dataset.icon); });
+}
+
+let autoRotateEnabled = true;
+try { autoRotateEnabled = localStorage.getItem('nova3d_autoRotate') !== 'false'; } catch(e){}
+
+let currentMode  = 'orbit';
+let gridSnap     = false;
+let gridSize     = 0.1;
+let pivotMode    = 'median';
+let sculptMode   = false;
+let sculptTool   = 'grab';
+let isSculpting  = false;
+let sculptHitPt  = null;
+let sculptTgtIdx = -1;
+
+let displayState = { wireframe:false, flatShading:false, xray:false, boundingBox:false, normals:false };
+let boxHelpers   = [];
+let normalHelpers= [];
+
+const undoHistory = [];
+const MAX_UNDO    = 30;
+
+// ── Realistic material creators ───────────────────────────────────────────────
+function makeGold() {
+  const s = Math.random()*1e4;
+  return new THREE.MeshPhysicalMaterial({
+    color:new THREE.Color(1,.766,.336), metalness:1, roughness:.15,
+    roughnessMap:genRoughnessMap(512,.15,.06,s), normalMap:genNormalMap(512,10,.25,s),
+    normalScale:new THREE.Vector2(.12,.12), envMap, envMapIntensity:1,
+    clearcoat:.3, clearcoatRoughness:.1, reflectivity:.9
+  });
+}
+function makeSilver(color=new THREE.Color(.95,.95,.95)) {
+  const s = Math.random()*1e4;
+  return new THREE.MeshPhysicalMaterial({
+    color, metalness:1, roughness:.1,
+    roughnessMap:genRoughnessMap(512,.1,.05,s), normalMap:genNormalMap(512,12,.2,s),
+    normalScale:new THREE.Vector2(.1,.1), envMap, envMapIntensity:1.2,
+    clearcoat:.4, clearcoatRoughness:.05, reflectivity:.95
+  });
+}
+function makeRoseGold() {
+  const s = Math.random()*1e4;
+  return new THREE.MeshPhysicalMaterial({
+    color:new THREE.Color(.91,.72,.65), metalness:1, roughness:.16,
+    roughnessMap:genRoughnessMap(512,.16,.06,s), normalMap:genNormalMap(512,10,.25,s),
+    normalScale:new THREE.Vector2(.12,.12), envMap, envMapIntensity:1,
+    clearcoat:.3, clearcoatRoughness:.1, reflectivity:.9
+  });
+}
+function makePlatinum() {
+  const s = Math.random()*1e4;
+  return new THREE.MeshPhysicalMaterial({
+    color:new THREE.Color(.92,.92,.92), metalness:1, roughness:.08,
+    roughnessMap:genRoughnessMap(512,.08,.04,s), normalMap:genNormalMap(512,14,.15,s),
+    normalScale:new THREE.Vector2(.08,.08), envMap, envMapIntensity:1.3,
+    clearcoat:.5, clearcoatRoughness:.05, reflectivity:.95
+  });
+}
+function makeCopper() {
+  const s = Math.random()*1e4;
+  return new THREE.MeshPhysicalMaterial({
+    color:new THREE.Color(.72,.45,.20), metalness:1, roughness:.25,
+    roughnessMap:genRoughnessMap(512,.25,.08,s), normalMap:genNormalMap(512,10,.3,s),
+    normalScale:new THREE.Vector2(.15,.15), envMap, envMapIntensity:.9,
+    clearcoat:.15, clearcoatRoughness:.2, reflectivity:.85
+  });
+}
+function makeDiamond(mesh) {
+  const mat = new THREE.MeshPhysicalMaterial({
+    color:new THREE.Color(0xffffff), metalness:0, roughness:0,
+    transmission:.95, thickness:2, ior:2.42, envMap, envMapIntensity:2.5,
+    clearcoat:1, clearcoatRoughness:0, transparent:true, opacity:1,
+    specularIntensity:1.5, specularColor:new THREE.Color(0xffffff), reflectivity:1
+  });
+  if (mesh) mesh.material = mat;
+  return mat;
+}
+const GEM_PRESETS = {
+  Ruby:     { color:0xE0115F, transmission:.85, ior:1.77, thickness:1.5 },
+  Emerald:  { color:0x50C878, transmission:.75, ior:1.58, thickness:1.5 },
+  Sapphire: { color:0x0F52BA, transmission:.88, ior:1.77, thickness:1.5 },
+  Amethyst: { color:0x9966CC, transmission:.90, ior:1.55, thickness:1.5 },
+  Topaz:    { color:0xFFC87C, transmission:.90, ior:1.63, thickness:1.5 },
+};
+const METAL_FACTORIES = { Gold:makeGold, 'Rose Gold':makeRoseGold, 'White Gold':()=>makeSilver(new THREE.Color(.9,.9,.9)), Platinum:makePlatinum, Silver:makeSilver, Copper:makeCopper };
+
+// ── init ──────────────────────────────────────────────────────────────────────
+function init() {
+  scene = new THREE.Scene();
+  let bg; try { bg = localStorage.getItem('nova3d_bgPreset')||'cream'; } catch(e){ bg='cream'; }
+  applyBgPreset(bg);
+
+  camera = new THREE.PerspectiveCamera(30, container.clientWidth/container.clientHeight, 0.1, 100);
+  camera.position.set(0,2,5);
+
+  renderer = new THREE.WebGLRenderer({ antialias:true, preserveDrawingBuffer:true, logarithmicDepthBuffer:true });
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.toneMapping        = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure= 1.1;
+  renderer.outputColorSpace   = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled  = true;
+  renderer.shadowMap.type     = THREE.PCFSoftShadowMap;
+  container.appendChild(renderer.domElement);
+
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping   = true;
+  controls.dampingFactor   = 0.05;
+  controls.autoRotate      = autoRotateEnabled;
+  controls.autoRotateSpeed = 1.0;
+  controls.target.set(0,0,0);
+  controls.minDistance = 2;
+  controls.maxDistance = 12;
+
+  transformControls = new TransformControls(camera, renderer.domElement);
+  transformControls.setSize(0.8);
+  transformControls.addEventListener('dragging-changed', e => { controls.enabled = !e.value; });
+  transformControls.addEventListener('mouseDown', () => pushUndoSnapshot('transform'));
+  transformControls.addEventListener('objectChange', () => {
+    if (gridSnap && transformControls.object) {
+      const o = transformControls.object;
+      o.position.x = Math.round(o.position.x/gridSize)*gridSize;
+      o.position.y = Math.round(o.position.y/gridSize)*gridSize;
+      o.position.z = Math.round(o.position.z/gridSize)*gridSize;
+    }
+  });
+  scene.add(transformControls);
+
+  modelGroup   = new THREE.Group(); scene.add(modelGroup);
+  transformProxy = new THREE.Group(); scene.add(transformProxy);
+
+  setupEnvironment();
+  renderSelectionIcons();
+  setupToolbar();
+  setupKeyboard();
+  setupRaycasting();
+  setupMeshButtons();
+  setupFlyouts();
+  setupSculpting();
+  setupViewportMode();
+
+  // ResizeObserver handles both the initial iframe sizing by Flutter
+  // (which fires before window.resize) and all subsequent resizes.
+  new ResizeObserver(() => onResize()).observe(container);
+  animate();
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+function onResize() {
+  const w = container.clientWidth, h = container.clientHeight;
+  if (!w || !h) return;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+}
+
+// ── Lighting + HDRI ───────────────────────────────────────────────────────────
+function setupEnvironment() {
+  const L1 = new THREE.DirectionalLight(0xffffff, 2);   L1.position.set(3,5,3);   scene.add(L1);
+  const L2 = new THREE.DirectionalLight(0xffffff, 1);   L2.position.set(-3,2,-3); scene.add(L2);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.5));
+  const sL = new THREE.DirectionalLight(0xffffff, 0.5); sL.position.set(0,10,0);
+  sL.castShadow = true; sL.shadow.mapSize.set(1024,1024);
+  sL.shadow.camera.near=.1; sL.shadow.camera.far=20;
+  sL.shadow.camera.left=sL.shadow.camera.bottom=-3;
+  sL.shadow.camera.right=sL.shadow.camera.top=3;
+  sL.shadow.bias=-0.003; sL.shadow.radius=8; scene.add(sL);
+  const sP = new THREE.Mesh(new THREE.PlaneGeometry(10,10), new THREE.ShadowMaterial({opacity:.06}));
+  sP.rotation.x=-Math.PI/2; sP.position.y=-1.3; sP.receiveShadow=true; scene.add(sP);
+
+  new RGBELoader().load(
+    'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_08_1k.hdr',
+    tex => { envMap = tex; envMap.mapping = THREE.EquirectangularReflectionMapping; },
+    undefined,
+    () => buildProceduralEnv()
+  );
+}
+function buildProceduralEnv() {
+  const pmrem = new THREE.PMREMGenerator(renderer); pmrem.compileEquirectangularShader();
+  const es = new THREE.Scene(); es.background = new THREE.Color(0x111111);
+  const wm = new THREE.MeshBasicMaterial({ color:0xffffff, side:THREE.DoubleSide, toneMapped:false });
+  const top = new THREE.Mesh(new THREE.PlaneGeometry(10,3),wm); top.position.set(0,5,0); top.rotation.x=Math.PI/2; es.add(top);
+  const front = new THREE.Mesh(new THREE.PlaneGeometry(8,2),wm); front.position.set(0,2,-6); es.add(front);
+  envMap = pmrem.fromScene(es,.02).texture;
+  pmrem.dispose();
+}
+
+// ── GLB loading ───────────────────────────────────────────────────────────────
+function loadGLB(url) {
+  showLoading();
+  new GLTFLoader().load(
+    url,
+    gltf => {
+      clearModel();
+      const model = gltf.scene;
+      const box  = new THREE.Box3().setFromObject(model);
+      const ctr  = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      model.position.sub(ctr);
+      model.scale.setScalar(2.2 / Math.max(size.x, size.y, size.z));
+      modelGroup.position.set(0,0,0); modelGroup.scale.setScalar(1); modelGroup.rotation.set(0,0,0);
+      model.traverse(child => { if (child.isMesh && child.geometry) { child.castShadow=true; child.receiveShadow=true; } });
+      assignCategoryColors(model);
+      modelGroup.add(model);
+      model.traverse(child => {
+        if (!child.isMesh || !child.geometry) return;
+        loadedMeshes.push({ mesh:child, originalMaterial:child.material, name:child.name||`Mesh_${loadedMeshes.length}`, geometry:child.geometry.clone() });
+      });
+      updateMeshList(); updateMeshStats();
+      frameCameraToModel(modelGroup);
+      hideLoading();
+      const el = document.getElementById('statsBar'); if(el) el.style.display='flex';
+      renderer.render(scene, camera);
+    },
+    prog => { if (prog.total>0) setLoadingProgress(Math.round(prog.loaded/prog.total*100)); },
+    err  => {
+      const msg = err?.message || String(err);
+      console.error('GLB load error:', err);
+      showError(`Failed to load model: ${msg}\n\nURL: ${url.slice(0,80)}`);
+    }
+  );
+}
+
+function clearModel() {
+  transformControls.detach();
+  loadedMeshes.forEach(m => { if (m.mesh.material && m.mesh.material !== highlightMat) m.mesh.material.dispose(); });
+  loadedMeshes = []; selectedMeshIndices.clear();
+  lastSelectionAction = null;
+  while (modelGroup.children.length) modelGroup.remove(modelGroup.children[0]);
+  boxHelpers.forEach(h=>scene.remove(h)); boxHelpers=[];
+  normalHelpers.forEach(h=>scene.remove(h)); normalHelpers=[];
+}
+
+// ── Loading overlay ───────────────────────────────────────────────────────────
+function showLoading() {
+  document.getElementById('loadingOverlay').classList.add('active');
+  setLoadingProgress(0);
+}
+function hideLoading() {
+  const el = document.getElementById('loadingError');
+  if (el) el.style.display = 'none';
+  document.getElementById('loadingOverlay').classList.remove('active');
+}
+function showError(msg) {
+  setLoadingProgress(100);
+  document.getElementById('loadingLabel').textContent = 'Error loading model';
+  const el = document.getElementById('loadingError');
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
+  // Keep overlay visible so user can read the error
+}
+function setLoadingProgress(pct) {
+  document.getElementById('loadingBarFill').style.width = pct+'%';
+  document.getElementById('loadingLabel').textContent = pct < 100 ? `Loading model... ${pct}%` : 'Ready';
+}
+
+// ── Mesh list ─────────────────────────────────────────────────────────────────
+function updateMeshList(options = {}) {
+  const list   = document.getElementById('meshList');
+  const search = document.getElementById('meshSearch').value.toLowerCase();
+  if (!loadedMeshes.length) {
+    list.innerHTML='<div style="text-align:center;color:#444;font-size:10px;padding:20px">Load a model to see parts</div>';
+    syncSelectionActions();
+    return;
+  }
+  let html = '';
+  loadedMeshes.forEach((m,idx) => {
+    if (search && !m.name.toLowerCase().includes(search)) return;
+    const sel    = selectedMeshIndices.has(idx);
+    const hidden = !m.mesh.visible;
+    const verts  = m.geometry.attributes.position ? m.geometry.attributes.position.count : 0;
+    const faces  = m.geometry.index ? m.geometry.index.count/3 : verts/3;
+    html += `<div class="mesh-item${sel?' selected':''}${hidden?' hidden-mesh':''}" data-idx="${idx}">
+      <div class="mesh-item-name">${hidden?'[H] ':''}${m.name}</div>
+      <div class="mesh-item-info">${verts.toLocaleString()} verts / ${Math.round(faces).toLocaleString()} faces</div>
+    </div>`;
+  });
+  list.innerHTML = html || '<div style="text-align:center;color:#444;font-size:10px;padding:20px">No match</div>';
+  list.querySelectorAll('.mesh-item').forEach(item => {
+    item.onclick = e => {
+      const idx = parseInt(item.dataset.idx);
+      if (e.ctrlKey||e.metaKey) { selectedMeshIndices.has(idx)?selectedMeshIndices.delete(idx):selectedMeshIndices.add(idx); }
+      else if (e.shiftKey && selectedMeshIndices.size>0) { const last=Math.max(...selectedMeshIndices); for(let i=Math.min(last,idx);i<=Math.max(last,idx);i++) selectedMeshIndices.add(i); }
+      else { selectedMeshIndices.clear(); selectedMeshIndices.add(idx); }
+      lastSelectionAction = null;
+      lastSelectedMeshIndex = idx;
+      updateMeshList({ scrollToSelection:true }); updateHighlights();
+      if (currentMode!=='orbit') attachTransformToSelection();
+    };
+  });
+  syncSelectionActions();
+  if (options.scrollToSelection) scrollSelectedMeshIntoView();
+}
+
+function syncSelectionActions() {
+  const toolbar = document.getElementById('selectionActions');
+  const countEl = document.getElementById('selectionCount');
+  const count = selectedMeshIndices.size;
+  if (toolbar) toolbar.classList.toggle('has-selection', count > 0);
+  if (countEl) countEl.textContent = count === 1 ? '1 selected' : `${count} selected`;
+
+  const selected = [...selectedMeshIndices].map(i => loadedMeshes[i]).filter(Boolean);
+  const hiddenSelected = selected.filter(entry => !entry.mesh.visible).length;
+  const hiddenTotal = loadedMeshes.filter(entry => !entry.mesh.visible).length;
+  const allSelected = loadedMeshes.length > 0 && count === loadedMeshes.length;
+  const focused = count > 0 && hiddenTotal > 0 && loadedMeshes.every((entry, idx) =>
+    selectedMeshIndices.has(idx) ? entry.mesh.visible : !entry.mesh.visible
+  );
+
+  const visibilityBtn = document.getElementById('actVisibility');
+  const visibilityLabel = document.getElementById('actVisibilityLabel');
+  const visibilityIcon = document.getElementById('actVisibilityIcon');
+  const showAllBtn = document.getElementById('actShowAll');
+  const isolateBtn = document.getElementById('actIsolate');
+  const selectAllBtn = document.getElementById('selectAll');
+  const selectNoneBtn = document.getElementById('selectNone');
+  const invertBtn = document.getElementById('selectInvert');
+
+  if (visibilityLabel) visibilityLabel.textContent = hiddenSelected > 0 ? 'Unhide' : 'Hide';
+  if (visibilityBtn) {
+    visibilityBtn.title = hiddenSelected > 0 ? 'Unhide the selected hidden parts' : 'Hide the selected visible parts';
+    visibilityBtn.classList.toggle('active', hiddenSelected > 0 || lastSelectionAction === 'visibility');
+  }
+  if (visibilityIcon) visibilityIcon.innerHTML = hiddenSelected > 0 ? iconSvg('eye') : iconSvg('eye-off');
+  if (showAllBtn) {
+    showAllBtn.disabled = hiddenTotal === 0;
+    showAllBtn.classList.toggle('active', lastSelectionAction === 'show-all');
+  }
+  if (isolateBtn) isolateBtn.classList.toggle('active', focused || lastSelectionAction === 'isolate');
+  if (selectAllBtn) selectAllBtn.classList.toggle('active', allSelected || lastSelectionAction === 'select-all');
+  if (selectNoneBtn) selectNoneBtn.classList.toggle('active', lastSelectionAction === 'select-none');
+  if (invertBtn) invertBtn.classList.toggle('active', lastSelectionAction === 'invert');
+}
+
+function scrollSelectedMeshIntoView() {
+  const list = document.getElementById('meshList');
+  if (!list || !selectedMeshIndices.size) return;
+  const targetIdx = lastSelectedMeshIndex != null && selectedMeshIndices.has(lastSelectedMeshIndex)
+    ? lastSelectedMeshIndex
+    : Math.min(...selectedMeshIndices);
+  const item = list.querySelector(`.mesh-item[data-idx="${targetIdx}"]`) || list.querySelector('.mesh-item.selected');
+  if (!item) return;
+  item.scrollIntoView({ block:'center', inline:'nearest', behavior:'smooth' });
+}
+
+function updateMeshStats() {
+  const totalVerts = loadedMeshes.reduce((s,m)=>s+(m.geometry.attributes.position?m.geometry.attributes.position.count:0),0);
+  document.getElementById('meshStats').textContent = `${loadedMeshes.length} meshes | ${totalVerts.toLocaleString()} verts`;
+  document.getElementById('statMeshes').textContent = loadedMeshes.length;
+  document.getElementById('statVerts').textContent  = totalVerts.toLocaleString();
+}
+
+function updateHighlights() {
+  loadedMeshes.forEach((m,idx) => { m.mesh.material = selectedMeshIndices.has(idx) ? highlightMat : m.originalMaterial; });
+  if (selectedMeshIndices.size===1) {
+    const mesh = loadedMeshes[[...selectedMeshIndices][0]].mesh;
+    const set = (id,v) => { const el=document.getElementById(id); if(el) el.value=v; };
+    set('tfPosX', mesh.position.x.toFixed(4)); set('tfPosY', mesh.position.y.toFixed(4)); set('tfPosZ', mesh.position.z.toFixed(4));
+    set('tfRotX', (mesh.rotation.x*180/Math.PI).toFixed(1)); set('tfRotY', (mesh.rotation.y*180/Math.PI).toFixed(1)); set('tfRotZ', (mesh.rotation.z*180/Math.PI).toFixed(1));
+    set('tfScaleX', mesh.scale.x.toFixed(4)); set('tfScaleY', mesh.scale.y.toFixed(4)); set('tfScaleZ', mesh.scale.z.toFixed(4));
+    set('tfScale', ((mesh.scale.x+mesh.scale.y+mesh.scale.z)/3).toFixed(4));
+  }
+}
+
+// ── Toolbar ───────────────────────────────────────────────────────────────────
+function setupToolbar() {
+  document.getElementById('tbOrbit').onclick  = ()=>setMode('orbit');
+  document.getElementById('tbMove').onclick   = ()=>setMode('translate');
+  document.getElementById('tbRotate').onclick = ()=>setMode('rotate');
+  document.getElementById('tbScale').onclick  = ()=>setMode('scale');
+  const arBtn = document.getElementById('tbAutoRotate');
+  if (arBtn) { arBtn.textContent = autoRotateEnabled?'Auto-rotate: ON':'Auto-rotate: OFF'; arBtn.classList.toggle('active',autoRotateEnabled); }
+}
+
+function setMode(mode) {
+  if (sculptMode && mode!=='orbit') return;
+  currentMode = mode;
+  document.querySelectorAll('.vp-btn').forEach(b=>b.classList.remove('active'));
+  if (mode==='orbit') {
+    document.getElementById('tbOrbit').classList.add('active');
+    detachProxy(); transformControls.detach();
+  } else {
+    const map = { translate:'tbMove', rotate:'tbRotate', scale:'tbScale' };
+    document.getElementById(map[mode]).classList.add('active');
+    transformControls.setMode(mode);
+    attachTransformToSelection();
+  }
+}
+
+window.toggleAutoRotate = function() {
+  autoRotateEnabled = !autoRotateEnabled;
+  controls.autoRotate = autoRotateEnabled;
+  try { localStorage.setItem('nova3d_autoRotate', String(autoRotateEnabled)); } catch(e){}
+  const btn = document.getElementById('tbAutoRotate');
+  if (btn) { btn.textContent = autoRotateEnabled?'Auto-rotate: ON':'Auto-rotate: OFF'; btn.classList.toggle('active',autoRotateEnabled); }
+};
+
+// ── Transform proxy (multi-mesh) ──────────────────────────────────────────────
+function attachTransformToSelection() {
+  if (!selectedMeshIndices.size || currentMode==='orbit') { transformControls.detach(); return; }
+  detachProxy();
+  if (selectedMeshIndices.size===1) { transformControls.attach(loadedMeshes[[...selectedMeshIndices][0]].mesh); return; }
+  const arr = [...selectedMeshIndices];
+  const center = new THREE.Vector3();
+  arr.forEach(i=>{ const wp=new THREE.Vector3(); loadedMeshes[i].mesh.getWorldPosition(wp); center.add(wp); });
+  center.divideScalar(arr.length);
+  transformProxy.position.copy(center); transformProxy.rotation.set(0,0,0); transformProxy.scale.set(1,1,1);
+  arr.forEach(i=>{ const m=loadedMeshes[i].mesh; m.userData._origParent=m.parent; transformProxy.attach(m); });
+  transformControls.attach(transformProxy);
+}
+function detachProxy() {
+  [...transformProxy.children].forEach(m=>{ (m.userData._origParent||modelGroup).attach(m); delete m.userData._origParent; });
+}
+
+// ── Raycasting / selection ────────────────────────────────────────────────────
+function setupRaycasting() {
+  let down = {x:0,y:0};
+  container.addEventListener('mousedown', e=>{ down={x:e.clientX,y:e.clientY}; });
+  container.addEventListener('click', e=>{
+    if (!isFullUi()) return;
+    if (Math.abs(e.clientX-down.x)>5 || Math.abs(e.clientY-down.y)>5) return;
+    if (sculptMode) return;
+    const rect = container.getBoundingClientRect();
+    mouse.x = ((e.clientX-rect.left)/rect.width)*2-1;
+    mouse.y = -((e.clientY-rect.top)/rect.height)*2+1;
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(loadedMeshes.map(m=>m.mesh).filter(m=>m.visible), false);
+    if (!hits.length) return;
+    const idx = loadedMeshes.findIndex(m=>m.mesh===hits[0].object); if (idx===-1) return;
+    if (e.ctrlKey||e.metaKey) { selectedMeshIndices.has(idx)?selectedMeshIndices.delete(idx):selectedMeshIndices.add(idx); }
+    else if (e.shiftKey && selectedMeshIndices.size>0) { const last=Math.max(...selectedMeshIndices); for(let i=Math.min(last,idx);i<=Math.max(last,idx);i++) selectedMeshIndices.add(i); }
+    else { selectedMeshIndices.clear(); selectedMeshIndices.add(idx); }
+    lastSelectionAction = null;
+    lastSelectedMeshIndex = idx;
+    updateMeshList({ scrollToSelection:true }); updateHighlights();
+    if (currentMode!=='orbit') attachTransformToSelection();
+  });
+}
+
+// ── Mesh panel buttons ────────────────────────────────────────────────────────
+function setupMeshButtons() {
+  document.getElementById('selectAll').onclick    = ()=>{ lastSelectionAction='select-all'; loadedMeshes.forEach((_,i)=>selectedMeshIndices.add(i)); lastSelectedMeshIndex=0; updateMeshList({ scrollToSelection:true }); updateHighlights(); };
+  document.getElementById('selectNone').onclick   = ()=>{ lastSelectionAction='select-none'; selectedMeshIndices.clear(); lastSelectedMeshIndex=null; transformControls.detach(); updateMeshList(); updateHighlights(); };
+  document.getElementById('selectInvert').onclick = ()=>{ lastSelectionAction='invert'; const n=new Set(); loadedMeshes.forEach((_,i)=>{ if(!selectedMeshIndices.has(i)) n.add(i); }); selectedMeshIndices=n; lastSelectedMeshIndex=selectedMeshIndices.size?Math.min(...selectedMeshIndices):null; updateMeshList({ scrollToSelection:true }); updateHighlights(); };
+  document.getElementById('meshSearch').oninput   = ()=>updateMeshList();
+  document.getElementById('actVisibility').onclick = ()=>{
+    lastSelectionAction='visibility';
+    const shouldShow = [...selectedMeshIndices].some(i => loadedMeshes[i] && !loadedMeshes[i].mesh.visible);
+    selectedMeshIndices.forEach(i=>{ loadedMeshes[i].mesh.visible=shouldShow; });
+    updateMeshList();
+  };
+  document.getElementById('actShowAll').onclick = ()=>{ lastSelectionAction='show-all'; loadedMeshes.forEach(m=>{ m.mesh.visible=true; }); updateMeshList(); };
+  document.getElementById('actIsolate').onclick = ()=>{ lastSelectionAction='isolate'; loadedMeshes.forEach((m,i)=>{ m.mesh.visible=selectedMeshIndices.has(i); }); updateMeshList(); };
+}
+
+// ── Keyboard shortcuts ────────────────────────────────────────────────────────
+function setupKeyboard() {
+  window.addEventListener('keydown', e=>{
+    if (e.target?.tagName==='INPUT' || e.target?.tagName==='TEXTAREA') return;
+    if (!isFullUi() && e.key !== 'Escape') return;
+    const key = e.key.toLowerCase();
+    if (key==='d' && e.shiftKey) { e.preventDefault(); window.duplicateSelection(); return; }
+    switch(key) {
+      case 'g': setMode('translate'); break;
+      case 'r': setMode('rotate');    break;
+      case 's': if (!e.ctrlKey) setMode('scale'); break;
+      case 'escape':
+        setMode('orbit');
+        if (sculptMode) window.toggleSculptMode();
+        closeFlyouts(); break;
+      case 'h': selectedMeshIndices.forEach(i=>{ loadedMeshes[i].mesh.visible=false; }); updateMeshList(); break;
+      case 'x': case 'delete': window.deleteSelected(); break;
+      case 'u': if (e.shiftKey) popUndo(); break;
+    }
+  });
+}
+
+// ── Undo ──────────────────────────────────────────────────────────────────────
+function pushUndoSnapshot(action) {
+  const snapshot = { action, meshes: loadedMeshes.map(entry => {
+    const m = entry.originalMaterial;
+    return {
+      name:entry.name, geometry:entry.mesh.geometry.clone(),
+      position:entry.mesh.position.clone(), rotation:entry.mesh.rotation.clone(),
+      scale:entry.mesh.scale.clone(), visible:entry.mesh.visible,
+      matParams:{ color:m.color?m.color.getHex():0xaaaaaa, metalness:m.metalness??0, roughness:m.roughness??0.8,
+        envMapIntensity:m.envMapIntensity??1, clearcoat:m.clearcoat??0, clearcoatRoughness:m.clearcoatRoughness??0,
+        transmission:m.transmission??0, ior:m.ior??1.5, thickness:m.thickness??0,
+        transparent:m.transparent??false, side:m.side??THREE.FrontSide }
+    };
+  })};
+  undoHistory.push(snapshot);
+  if (undoHistory.length>MAX_UNDO) { const old=undoHistory.shift(); old.meshes.forEach(m=>m.geometry.dispose()); }
+}
+
+function popUndo() {
+  if (!undoHistory.length) return;
+  const snap = undoHistory.pop();
+  detachProxy(); transformControls.detach();
+  boxHelpers.forEach(h=>scene.remove(h)); boxHelpers=[];
+  normalHelpers.forEach(h=>scene.remove(h)); normalHelpers=[];
+  loadedMeshes.forEach(e=>{ e.mesh.removeFromParent(); e.mesh.geometry.dispose(); if(e.mesh.material&&e.mesh.material!==highlightMat) e.mesh.material.dispose(); });
+  loadedMeshes=[]; selectedMeshIndices.clear();
+  snap.meshes.forEach(s=>{
+    const p=s.matParams;
+    const mat = new THREE.MeshPhysicalMaterial({ color:p.color, metalness:p.metalness, roughness:p.roughness, envMap, envMapIntensity:p.envMapIntensity, clearcoat:p.clearcoat, clearcoatRoughness:p.clearcoatRoughness, transmission:p.transmission, ior:p.ior, thickness:p.thickness, transparent:p.transparent, side:p.side });
+    const mesh = new THREE.Mesh(s.geometry, mat);
+    mesh.name=s.name; mesh.position.copy(s.position); mesh.rotation.copy(s.rotation); mesh.scale.copy(s.scale); mesh.visible=s.visible;
+    modelGroup.add(mesh);
+    loadedMeshes.push({ mesh, originalMaterial:mat, name:s.name, geometry:s.geometry.clone() });
+  });
+  updateMeshList(); updateMeshStats(); updateHighlights();
+}
+
+// ── Mesh operations ───────────────────────────────────────────────────────────
+window.deleteSelected = function() {
+  if (!selectedMeshIndices.size) return;
+  pushUndoSnapshot('delete'); detachProxy(); transformControls.detach();
+  const idxs = [...selectedMeshIndices].sort((a,b)=>b-a);
+  idxs.forEach(i=>{ const e=loadedMeshes[i]; e.mesh.removeFromParent(); e.mesh.geometry.dispose(); if(e.mesh.material&&e.mesh.material!==highlightMat) e.mesh.material.dispose(); });
+  idxs.forEach(i=>loadedMeshes.splice(i,1));
+  selectedMeshIndices.clear(); updateMeshList(); updateMeshStats();
+};
+
+window.duplicateSelection = function() {
+  if (!selectedMeshIndices.size) return;
+  pushUndoSnapshot('duplicate');
+  const newIdxs = new Set();
+  [...selectedMeshIndices].forEach(i=>{
+    const e=loadedMeshes[i];
+    const geom=e.mesh.geometry.clone(), mat=e.originalMaterial.clone();
+    const mesh=new THREE.Mesh(geom,mat);
+    mesh.position.copy(e.mesh.position); mesh.position.x+=0.15;
+    mesh.rotation.copy(e.mesh.rotation); mesh.scale.copy(e.mesh.scale);
+    mesh.name=e.name+'_copy'; modelGroup.add(mesh);
+    const ni=loadedMeshes.length; loadedMeshes.push({mesh,originalMaterial:mat,name:mesh.name,geometry:geom.clone()}); newIdxs.add(ni);
+  });
+  selectedMeshIndices=newIdxs; updateMeshList(); updateHighlights(); updateMeshStats();
+};
+
+window.mirrorSelection = function(axis) {
+  if (!selectedMeshIndices.size) return; pushUndoSnapshot('mirror');
+  selectedMeshIndices.forEach(i=>{ loadedMeshes[i].mesh.scale[axis]*=-1; });
+};
+
+window.resetTransform = function() {
+  if (!selectedMeshIndices.size) return; pushUndoSnapshot('reset-transform');
+  selectedMeshIndices.forEach(i=>{ const m=loadedMeshes[i].mesh; m.position.set(0,0,0); m.rotation.set(0,0,0); m.scale.set(1,1,1); });
+};
+
+window.alignToAxis = function(axis) {
+  if (!selectedMeshIndices.size) return; pushUndoSnapshot('align');
+  selectedMeshIndices.forEach(i=>{ loadedMeshes[i].mesh.position[axis]=0; });
+};
+
+window.applyNumericTransform = function() {
+  if (!selectedMeshIndices.size) return; pushUndoSnapshot('numeric-transform');
+  const g = id => parseFloat(document.getElementById(id)?.value)||0;
+  const gd = id => (g(id)||1);
+  const px=g('tfPosX'),py=g('tfPosY'),pz=g('tfPosZ');
+  const rx=g('tfRotX')*Math.PI/180, ry=g('tfRotY')*Math.PI/180, rz=g('tfRotZ')*Math.PI/180;
+  const sx=parseFloat(document.getElementById('tfScaleX')?.value)||1;
+  const sy=parseFloat(document.getElementById('tfScaleY')?.value)||1;
+  const sz=parseFloat(document.getElementById('tfScaleZ')?.value)||1;
+  selectedMeshIndices.forEach(i=>{ const m=loadedMeshes[i].mesh; m.position.set(px,py,pz); m.rotation.set(rx,ry,rz); m.scale.set(sx,sy,sz); });
+};
+
+window.applyUniformScale = function() {
+  const s=parseFloat(document.getElementById('tfScale')?.value)||1;
+  ['tfScaleX','tfScaleY','tfScaleZ'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=s; });
+  window.applyNumericTransform();
+};
+
+window.readCurrentTransform = function() {
+  if (!selectedMeshIndices.size) return;
+  const mesh=loadedMeshes[[...selectedMeshIndices][0]].mesh;
+  const s=(id,v)=>{ const el=document.getElementById(id); if(el) el.value=v; };
+  s('tfPosX',mesh.position.x.toFixed(4)); s('tfPosY',mesh.position.y.toFixed(4)); s('tfPosZ',mesh.position.z.toFixed(4));
+  s('tfRotX',(mesh.rotation.x*180/Math.PI).toFixed(1)); s('tfRotY',(mesh.rotation.y*180/Math.PI).toFixed(1)); s('tfRotZ',(mesh.rotation.z*180/Math.PI).toFixed(1));
+  s('tfScaleX',mesh.scale.x.toFixed(4)); s('tfScaleY',mesh.scale.y.toFixed(4)); s('tfScaleZ',mesh.scale.z.toFixed(4));
+  s('tfScale',((mesh.scale.x+mesh.scale.y+mesh.scale.z)/3).toFixed(4));
+};
+
+window.mergeSelected = function() {
+  if (selectedMeshIndices.size<2) return; pushUndoSnapshot('merge');
+  const idxs=[...selectedMeshIndices].sort((a,b)=>a-b), geoms=[];
+  idxs.forEach(i=>{ const m=loadedMeshes[i].mesh; const g=m.geometry.clone(); m.updateMatrixWorld(true); g.applyMatrix4(m.matrixWorld); geoms.push(g); });
+  try {
+    const merged=mergeGeometries(geoms,false); if(!merged) return;
+    merged.computeVertexNormals();
+    const mat=loadedMeshes[idxs[0]].originalMaterial.clone();
+    const mesh=new THREE.Mesh(merged,mat); mesh.name='Merged'; modelGroup.add(mesh);
+    idxs.sort((a,b)=>b-a).forEach(i=>{ loadedMeshes[i].mesh.removeFromParent(); loadedMeshes[i].mesh.geometry.dispose(); loadedMeshes.splice(i,1); });
+    loadedMeshes.push({mesh,originalMaterial:mat,name:'Merged',geometry:merged.clone()});
+    selectedMeshIndices.clear(); selectedMeshIndices.add(loadedMeshes.length-1);
+    updateMeshList(); updateHighlights(); updateMeshStats();
+  } catch(e){ console.error('Merge error:',e); }
+};
+
+window.flipNormals = function() {
+  if (!selectedMeshIndices.size) return; pushUndoSnapshot('flip-normals');
+  selectedMeshIndices.forEach(i=>{
+    const geo=loadedMeshes[i].mesh.geometry, idx=geo.index;
+    if (idx) { const a=idx.array; for(let j=0;j<a.length;j+=3){[a[j],a[j+2]]=[a[j+2],a[j]];} idx.needsUpdate=true; }
+    const nrm=geo.attributes.normal;
+    if (nrm) { for(let j=0;j<nrm.count;j++) nrm.setXYZ(j,-nrm.getX(j),-nrm.getY(j),-nrm.getZ(j)); nrm.needsUpdate=true; }
+  });
+};
+
+window.centerOrigin = function() {
+  if (!selectedMeshIndices.size) return; pushUndoSnapshot('center-origin');
+  selectedMeshIndices.forEach(i=>{
+    const mesh=loadedMeshes[i].mesh; mesh.geometry.computeBoundingBox();
+    const c=mesh.geometry.boundingBox.getCenter(new THREE.Vector3());
+    mesh.geometry.translate(-c.x,-c.y,-c.z);
+    c.applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(mesh.rotation)).multiply(mesh.scale);
+    mesh.position.add(c);
+  });
+};
+
+window.recalcNormals = function() {
+  if (!selectedMeshIndices.size) return;
+  selectedMeshIndices.forEach(i=>{ loadedMeshes[i].mesh.geometry.computeVertexNormals(); });
+};
+
+window.separateByLooseParts = function() {
+  if (selectedMeshIndices.size!==1) return;
+  pushUndoSnapshot('separate');
+  const idx=[...selectedMeshIndices][0], entry=loadedMeshes[idx];
+  const geo=entry.mesh.geometry, pos=geo.attributes.position, index=geo.index;
+  if (!index) return;
+  const n=pos.count, parent=new Int32Array(n).fill(0).map((_,i)=>i);
+  const find=x=>{ while(parent[x]!==x){parent[x]=parent[parent[x]];x=parent[x];} return x; };
+  const union=(a,b)=>{ const ra=find(a),rb=find(b); if(ra!==rb) parent[ra]=rb; };
+  const ia=index.array;
+  for(let i=0;i<ia.length;i+=3){ union(ia[i],ia[i+1]); union(ia[i+1],ia[i+2]); }
+  const groups={};
+  for(let i=0;i<ia.length;i+=3){ const r=find(ia[i]); (groups[r]=groups[r]||[]).push(i); }
+  const keys=Object.keys(groups); if(keys.length<2) return;
+  entry.mesh.removeFromParent(); loadedMeshes.splice(idx,1); selectedMeshIndices.clear();
+  keys.forEach((root,gi)=>{
+    const faces=groups[root], vmap={};let nvc=0,newIdx=[];
+    faces.forEach(fi=>{ for(let j=0;j<3;j++){ const ov=ia[fi+j]; if(!(ov in vmap)) vmap[ov]=nvc++; newIdx.push(vmap[ov]); }});
+    const newPos=new Float32Array(nvc*3), oldPos=pos.array;
+    for(const[ov,nv] of Object.entries(vmap)){ newPos[nv*3]=oldPos[ov*3]; newPos[nv*3+1]=oldPos[ov*3+1]; newPos[nv*3+2]=oldPos[ov*3+2]; }
+    const ng=new THREE.BufferGeometry();
+    ng.setAttribute('position',new THREE.BufferAttribute(newPos,3)); ng.setIndex(newIdx); ng.computeVertexNormals();
+    const mat=entry.originalMaterial.clone(), mesh=new THREE.Mesh(ng,mat);
+    mesh.name=`${entry.name}_part${gi}`; mesh.position.copy(entry.mesh.position); mesh.rotation.copy(entry.mesh.rotation); mesh.scale.copy(entry.mesh.scale);
+    modelGroup.add(mesh); loadedMeshes.push({mesh,originalMaterial:mat,name:mesh.name,geometry:ng.clone()});
+  });
+  updateMeshList(); updateMeshStats();
+};
+
+// ── Modifiers ─────────────────────────────────────────────────────────────────
+function subdivideGeometryOnce(geometry) {
+  const source = geometry.index ? geometry.toNonIndexed() : geometry.clone();
+  const pos = source.attributes.position;
+  const out = [];
+
+  const vertex = i => new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i));
+  const pushTri = (a,b,c) => {
+    out.push(a.x,a.y,a.z, b.x,b.y,b.z, c.x,c.y,c.z);
+  };
+
+  for (let i=0; i<pos.count; i+=3) {
+    const a = vertex(i), b = vertex(i+1), c = vertex(i+2);
+    const ab = a.clone().add(b).multiplyScalar(.5);
+    const bc = b.clone().add(c).multiplyScalar(.5);
+    const ca = c.clone().add(a).multiplyScalar(.5);
+    pushTri(a, ab, ca);
+    pushTri(ab, b, bc);
+    pushTri(ca, bc, c);
+    pushTri(ab, bc, ca);
+  }
+
+  const next = new THREE.BufferGeometry();
+  next.setAttribute('position', new THREE.Float32BufferAttribute(out, 3));
+  next.computeVertexNormals();
+  source.dispose();
+  return next;
+}
+
+window.subdivideSelected = function(iters=1) {
+  if (!selectedMeshIndices.size) return; pushUndoSnapshot('subdivide');
+  selectedMeshIndices.forEach(i=>{
+    try {
+      let next = loadedMeshes[i].mesh.geometry.clone();
+      for (let step=0; step<iters; step++) {
+        if ((next.index ? next.index.count : next.attributes.position.count) > 80000) break;
+        const sub = subdivideGeometryOnce(next);
+        next.dispose();
+        next = sub;
+      }
+      loadedMeshes[i].mesh.geometry.dispose();
+      loadedMeshes[i].mesh.geometry = next;
+      loadedMeshes[i].geometry = next.clone();
+    } catch(e){ console.error(e); }
+  });
+  updateMeshStats();
+};
+
+window.smoothSelected = function(iters=3) {
+  if (!selectedMeshIndices.size) return; pushUndoSnapshot('smooth');
+  selectedMeshIndices.forEach(i=>{
+    const geo=loadedMeshes[i].mesh.geometry, pos=geo.attributes.position, idx=geo.index; if(!idx) return;
+    const adj=Array.from({length:pos.count},()=>new Set()), ia=idx.array;
+    for(let f=0;f<ia.length;f+=3){ adj[ia[f]].add(ia[f+1]);adj[ia[f]].add(ia[f+2]);adj[ia[f+1]].add(ia[f]);adj[ia[f+1]].add(ia[f+2]);adj[ia[f+2]].add(ia[f]);adj[ia[f+2]].add(ia[f+1]); }
+    for(let it=0;it<iters;it++){
+      const np=new Float32Array(pos.array.length);
+      for(let v=0;v<pos.count;v++){
+        const nb=adj[v]; if(!nb.size){np[v*3]=pos.getX(v);np[v*3+1]=pos.getY(v);np[v*3+2]=pos.getZ(v);continue;}
+        let sx=0,sy=0,sz=0; nb.forEach(n=>{sx+=pos.getX(n);sy+=pos.getY(n);sz+=pos.getZ(n);}); const c=nb.size;
+        np[v*3]=pos.getX(v)*.5+(sx/c)*.5; np[v*3+1]=pos.getY(v)*.5+(sy/c)*.5; np[v*3+2]=pos.getZ(v)*.5+(sz/c)*.5;
+      }
+      pos.array.set(np); pos.needsUpdate=true;
+    }
+    geo.computeVertexNormals();
+  });
+  updateMeshStats();
+};
+
+window.decimateSelected = function(ratio=0.5) {
+  if (!selectedMeshIndices.size) return; pushUndoSnapshot('decimate');
+  selectedMeshIndices.forEach(i=>{
+    const geo=loadedMeshes[i].mesh.geometry, idx=geo.index; if(!idx) return;
+    const keep=Math.max(12,Math.floor(idx.count*ratio))-(Math.max(12,Math.floor(idx.count*ratio))%3);
+    const newIdx=new Uint32Array(keep);
+    for(let j=0;j<keep;j++) newIdx[j]=idx.array[j];
+    geo.setIndex(new THREE.BufferAttribute(newIdx,1)); geo.computeVertexNormals();
+    loadedMeshes[i].geometry=geo.clone();
+  });
+  updateMeshStats();
+};
+
+window.applyMirrorModifier = function(axis) {
+  if (!selectedMeshIndices.size) return; pushUndoSnapshot('mirror-mod');
+  selectedMeshIndices.forEach(i=>{
+    const mesh=loadedMeshes[i].mesh, orig=mesh.geometry.clone(), mir=mesh.geometry.clone();
+    const scl=new THREE.Vector3(1,1,1); scl[axis]=-1; mir.scale(scl.x,scl.y,scl.z);
+    if(mir.index){ const a=mir.index.array; for(let j=0;j<a.length;j+=3){[a[j],a[j+2]]=[a[j+2],a[j]];} }
+    try {
+      const merged=mergeGeometries([orig,mir],false); if(!merged) return;
+      merged.computeVertexNormals(); mesh.geometry.dispose(); mesh.geometry=merged; loadedMeshes[i].geometry=merged.clone();
+    } catch(e){ console.error(e); }
+  });
+  updateMeshStats();
+};
+
+// ── Materials ─────────────────────────────────────────────────────────────────
+window.applyMaterialPreset = function(name) {
+  if (!selectedMeshIndices.size) return; pushUndoSnapshot('material');
+  selectedMeshIndices.forEach(i=>{
+    const entry=loadedMeshes[i]; let mat;
+    if (name==='Diamond') { mat=makeDiamond(entry.mesh); }
+    else if (METAL_FACTORIES[name]) { mat=METAL_FACTORIES[name](); entry.mesh.material=mat; }
+    else if (GEM_PRESETS[name]) {
+      const p=GEM_PRESETS[name];
+      mat=new THREE.MeshPhysicalMaterial({ color:p.color, metalness:0, roughness:0, transmission:p.transmission, ior:p.ior, thickness:p.thickness, envMap, envMapIntensity:2, clearcoat:1, clearcoatRoughness:0, transparent:true, opacity:1, side:THREE.DoubleSide, specularIntensity:1.5, specularColor:new THREE.Color(0xffffff), attenuationDistance:1, attenuationColor:new THREE.Color(p.color) });
+      entry.mesh.material=mat;
+    }
+    if (mat) entry.originalMaterial=mat;
+  });
+  updateHighlights();
+};
+
+window.applyCustomMaterial = function() {
+  if (!selectedMeshIndices.size) return; pushUndoSnapshot('custom-material');
+  const color=document.getElementById('customMatColor').value;
+  const metalness=parseFloat(document.getElementById('customMetalness').value);
+  const roughness=parseFloat(document.getElementById('customRoughness').value);
+  const clearcoat=parseFloat(document.getElementById('customClearcoat').value);
+  selectedMeshIndices.forEach(i=>{
+    const mat=new THREE.MeshPhysicalMaterial({ color:new THREE.Color(color), metalness, roughness, clearcoat, clearcoatRoughness:.1, envMap, envMapIntensity:1.5 });
+    loadedMeshes[i].mesh.material=mat; loadedMeshes[i].originalMaterial=mat;
+  });
+  updateHighlights();
+};
+
+// ── Display modes ─────────────────────────────────────────────────────────────
+window.toggleWireframe = function() {
+  displayState.wireframe=!displayState.wireframe;
+  const tgts=selectedMeshIndices.size?[...selectedMeshIndices]:loadedMeshes.map((_,i)=>i);
+  tgts.forEach(i=>{ loadedMeshes[i].originalMaterial.wireframe=displayState.wireframe; loadedMeshes[i].originalMaterial.needsUpdate=true; });
+  document.getElementById('togWireframe').classList.toggle('active-tool',displayState.wireframe);
+};
+window.toggleFlatShading = function() {
+  displayState.flatShading=!displayState.flatShading;
+  const tgts=selectedMeshIndices.size?[...selectedMeshIndices]:loadedMeshes.map((_,i)=>i);
+  tgts.forEach(i=>{ loadedMeshes[i].originalMaterial.flatShading=displayState.flatShading; loadedMeshes[i].originalMaterial.needsUpdate=true; });
+  document.getElementById('togFlatShade').classList.toggle('active-tool',displayState.flatShading);
+};
+window.toggleXray = function() {
+  displayState.xray=!displayState.xray;
+  const tgts=selectedMeshIndices.size?[...selectedMeshIndices]:loadedMeshes.map((_,i)=>i);
+  tgts.forEach(i=>{ const m=loadedMeshes[i].originalMaterial; m.transparent=displayState.xray; m.opacity=displayState.xray?.3:1; m.depthWrite=!displayState.xray; m.needsUpdate=true; });
+  document.getElementById('togXray').classList.toggle('active-tool',displayState.xray);
+};
+window.toggleBoundingBox = function() {
+  displayState.boundingBox=!displayState.boundingBox;
+  boxHelpers.forEach(h=>scene.remove(h)); boxHelpers=[];
+  if (displayState.boundingBox) {
+    const tgts=selectedMeshIndices.size?[...selectedMeshIndices]:loadedMeshes.map((_,i)=>i);
+    tgts.forEach(i=>{ const h=new THREE.BoxHelper(loadedMeshes[i].mesh,0x00ffff); scene.add(h); boxHelpers.push(h); });
+  }
+  document.getElementById('togBBox').classList.toggle('active-tool',displayState.boundingBox);
+};
+window.toggleNormals = function() {
+  displayState.normals=!displayState.normals;
+  normalHelpers.forEach(h=>scene.remove(h)); normalHelpers=[];
+  if (displayState.normals) {
+    const tgts=selectedMeshIndices.size?[...selectedMeshIndices]:loadedMeshes.map((_,i)=>i);
+    tgts.forEach(i=>{
+      const mesh=loadedMeshes[i].mesh, pos=mesh.geometry.attributes.position, nrm=mesh.geometry.attributes.normal; if(!nrm) return;
+      const pts=[], step=Math.max(1,Math.floor(pos.count/500));
+      for(let v=0;v<pos.count;v+=step){ const p=new THREE.Vector3(pos.getX(v),pos.getY(v),pos.getZ(v)); const n=new THREE.Vector3(nrm.getX(v),nrm.getY(v),nrm.getZ(v)).multiplyScalar(.05); pts.push(p,p.clone().add(n)); }
+      const lg=new THREE.BufferGeometry().setFromPoints(pts), lm=new THREE.LineBasicMaterial({color:0x00ff88});
+      const lines=new THREE.LineSegments(lg,lm); mesh.add(lines); normalHelpers.push(lines);
+    });
+  }
+  document.getElementById('togNormals').classList.toggle('active-tool',displayState.normals);
+};
+window.setExposure = function(val) {
+  renderer.toneMappingExposure=parseFloat(val);
+  document.getElementById('exposureVal').textContent=parseFloat(val).toFixed(1);
+};
+
+// ── Sculpting ─────────────────────────────────────────────────────────────────
+window.toggleSculptMode = function() {
+  sculptMode=!sculptMode;
+  const btn=document.getElementById('sculptModeBtn');
+  if (sculptMode) { btn.textContent='Disable Sculpt Mode'; btn.style.borderColor='#0f0'; btn.style.color='#0f0'; setMode('orbit'); container.style.cursor='crosshair'; }
+  else { btn.textContent='Enable Sculpt Mode'; btn.style.borderColor='#f80'; btn.style.color='#f80'; container.style.cursor=''; isSculpting=false; }
+};
+window.setSculptTool = function(tool) {
+  sculptTool=tool;
+  document.querySelectorAll('#flySculpt .fo-btn').forEach(b=>b.classList.remove('active-tool'));
+  const el=document.getElementById('sculpt'+tool[0].toUpperCase()+tool.slice(1)); if(el) el.classList.add('active-tool');
+};
+function setupSculpting() {
+  container.addEventListener('mousedown', e=>{
+    if (!sculptMode || e.button!==0) return;
+    const rect=container.getBoundingClientRect();
+    mouse.x=((e.clientX-rect.left)/rect.width)*2-1; mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
+    raycaster.setFromCamera(mouse,camera);
+    const hits=raycaster.intersectObjects(loadedMeshes.map(m=>m.mesh).filter(m=>m.visible),false);
+    if (!hits.length) return;
+    sculptTgtIdx=loadedMeshes.findIndex(m=>m.mesh===hits[0].object); if(sculptTgtIdx===-1) return;
+    pushUndoSnapshot('sculpt'); isSculpting=true; sculptHitPt=hits[0].point.clone(); controls.enabled=false;
+    applySculptBrush(hits[0]);
+  });
+  container.addEventListener('mousemove', e=>{
+    if (!isSculpting || sculptTgtIdx===-1) return;
+    const rect=container.getBoundingClientRect();
+    mouse.x=((e.clientX-rect.left)/rect.width)*2-1; mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
+    raycaster.setFromCamera(mouse,camera);
+    const hits=raycaster.intersectObject(loadedMeshes[sculptTgtIdx].mesh,false);
+    if (hits.length) applySculptBrush(hits[0]);
+  });
+  container.addEventListener('mouseup', ()=>{
+    if (isSculpting) { isSculpting=false; controls.enabled=true; if(sculptTgtIdx!==-1) loadedMeshes[sculptTgtIdx].mesh.geometry.computeVertexNormals(); }
+  });
+}
+function applySculptBrush(hit) {
+  const mesh=loadedMeshes[sculptTgtIdx].mesh, geo=mesh.geometry;
+  const pos=geo.attributes.position, nrm=geo.attributes.normal;
+  const bSize=parseFloat(document.getElementById('brushSize').value);
+  const bStr =parseFloat(document.getElementById('brushStrength').value);
+  const inv=new THREE.Matrix4().copy(mesh.matrixWorld).invert();
+  const lh=hit.point.clone().applyMatrix4(inv);
+  const lfn=hit.face?hit.face.normal.clone():new THREE.Vector3(0,1,0);
+  for(let v=0;v<pos.count;v++){
+    const vx=pos.getX(v),vy=pos.getY(v),vz=pos.getZ(v);
+    const dist=Math.sqrt((vx-lh.x)**2+(vy-lh.y)**2+(vz-lh.z)**2); if(dist>bSize) continue;
+    const str=bStr*(1-(dist/bSize))**2*.02;
+    if (sculptTool==='grab') {
+      const dd=hit.point.clone().sub(sculptHitPt).applyMatrix4(new THREE.Matrix4().extractRotation(inv));
+      pos.setXYZ(v,vx+dd.x*str*10,vy+dd.y*str*10,vz+dd.z*str*10);
+    } else if (sculptTool==='inflate' && nrm) {
+      pos.setXYZ(v,vx+nrm.getX(v)*str,vy+nrm.getY(v)*str,vz+nrm.getZ(v)*str);
+    } else if (sculptTool==='smooth') {
+      pos.setXYZ(v,vx+(lh.x-vx)*str*.5,vy+(lh.y-vy)*str*.5,vz+(lh.z-vz)*str*.5);
+    } else if (sculptTool==='flatten') {
+      const dot=(vx-lh.x)*lfn.x+(vy-lh.y)*lfn.y+(vz-lh.z)*lfn.z;
+      pos.setXYZ(v,vx-lfn.x*dot*str,vy-lfn.y*dot*str,vz-lfn.z*dot*str);
+    }
+  }
+  pos.needsUpdate=true; sculptHitPt=hit.point.clone();
+}
+
+// ── Snap / pivot ──────────────────────────────────────────────────────────────
+window.toggleGridSnap = function() {
+  gridSnap=!gridSnap;
+  document.getElementById('togGridSnap').textContent=`Grid Snap: ${gridSnap?'ON':'OFF'}`;
+  document.getElementById('togGridSnap').classList.toggle('active-tool',gridSnap);
+};
+window.setPivotMode = function(mode) {
+  pivotMode=mode;
+  ['pivotMedian','pivotIndividual','pivotWorld'].forEach(id=>{ const el=document.getElementById(id); if(el) el.classList.remove('active-tool'); });
+  const el=document.getElementById('pivot'+mode[0].toUpperCase()+mode.slice(1)); if(el) el.classList.add('active-tool');
+};
+
+// ── Flyout system ─────────────────────────────────────────────────────────────
+function setupFlyouts() {
+  document.querySelectorAll('.et-btn').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      e.stopPropagation();
+      const id=btn.dataset.flyout, flyout=document.getElementById(id);
+      const wasOpen=flyout.classList.contains('open');
+      closeFlyouts();
+      if (!wasOpen) { flyout.classList.add('open'); btn.classList.add('active'); }
+    });
+  });
+  document.addEventListener('click', e=>{ if(!e.target.closest('.flyout')&&!e.target.closest('.et-btn')) closeFlyouts(); });
+}
+function closeFlyouts() {
+  document.querySelectorAll('.flyout').forEach(f=>f.classList.remove('open'));
+  document.querySelectorAll('.et-btn').forEach(b=>b.classList.remove('active'));
+}
+
+// ── Compact preview / full editor mode ───────────────────────────────────────
+function isFullUi() {
+  return document.body.classList.contains('full-ui');
+}
+
+function setViewportMode(full) {
+  document.body.classList.toggle('full-ui', full);
+  document.body.classList.toggle('compact', !full);
+  const btn = document.getElementById('fullscreenToggle');
+  if (btn) {
+    btn.title = full ? 'Return to studio preview' : 'Open full editor';
+    btn.setAttribute('aria-label', btn.title);
+  }
+  if (!full) {
+    setMode('orbit');
+    selectedMeshIndices.clear();
+    updateHighlights();
+    updateMeshList();
+    closeFlyouts();
+  }
+  onResize();
+  if (loadedMeshes.length) frameCameraToModel(modelGroup);
+}
+
+function setupViewportMode() {
+  const btn = document.getElementById('fullscreenToggle');
+  if (btn) {
+    btn.onclick = async () => {
+      if (isFullUi()) {
+        setViewportMode(false);
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type:'nova3d-viewer-fullscreen', action:'exit' }, '*');
+        }
+        return;
+      }
+      setViewportMode(true);
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type:'nova3d-viewer-fullscreen', action:'enter' }, '*');
+      }
+    };
+  }
+  window.addEventListener('message', event => {
+    const data = event.data || {};
+    if (data.type === 'nova3d-viewer-fullscreen-state') {
+      setViewportMode(Boolean(data.full));
+    }
+  });
+}
+
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  init();
+  buildBgSwatches();
+
+  const params = new URLSearchParams(window.location.search);
+  setViewportMode(params.get('mode') === 'editor');
+
+  const glbUrl = params.get('glb');
+  const autoR  = params.get('autoRotate');
+  if (autoR === 'false') {
+    autoRotateEnabled = false;
+    controls.autoRotate = false;
+    const btn = document.getElementById('tbAutoRotate');
+    if (btn) {
+      btn.textContent = 'Auto-rotate: OFF';
+      btn.classList.remove('active');
+    }
+  }
+
+  if (glbUrl) {
+    // URLSearchParams.get() already decodes percent-encoding. Decoding again can
+    // corrupt signed URLs whose query strings contain encoded characters.
+    const decoded = glbUrl;
+    // Wait until the container has real dimensions before loading —
+    // Flutter may not have completed iframe layout at DOMContentLoaded time.
+    if (container.clientWidth > 0 && container.clientHeight > 0) {
+      loadGLB(decoded);
+    } else {
+      const ro = new ResizeObserver((_, obs) => {
+        if (container.clientWidth > 0 && container.clientHeight > 0) {
+          obs.disconnect();
+          loadGLB(decoded);
+        }
+      });
+      ro.observe(container);
+    }
+  }
+});
+</script>
+</body>
+</html>
