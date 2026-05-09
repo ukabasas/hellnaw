@@ -46,6 +46,12 @@ flutter run -d web-server --web-hostname 0.0.0.0 --web-port 5555
 
 ---
 
+## Demo
+
+[![Demo](https://i.imgur.com/6GaFYsf.jpeg)](https://www.youtube.com/watch?v=-OC59b1tNuc)
+
+---
+
 ## Technical Philosophy
 
 ### 1. Script-Native vs. Mesh-Native
