@@ -2,7 +2,7 @@
 
 # Nova3D
 
-**Editable, part-aware 3D generation**
+**AI 3D generation that outputs separate, editable parts - not a single merged blob**
 
 [nova3d.xyz](https://nova3d.xyz) · [Issues](https://github.com/RareSense/Nova3D/issues)
 
