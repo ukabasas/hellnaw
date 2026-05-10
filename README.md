@@ -30,7 +30,7 @@ Get it running locally in under 2 minutes. Requires [Flutter 3.24+](https://flut
 
 ```bash
 # 1. Clone and Install
-git clone https://github.com
+git clone https://github.com/RareSense/Nova3D.git
 cd Nova3D
 flutter pub get
 
