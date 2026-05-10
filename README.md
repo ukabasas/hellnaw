@@ -48,7 +48,9 @@ flutter run -d web-server --web-hostname 0.0.0.0 --web-port 5555
 
 ## Demo
 
-[![Demo](https://i.imgur.com/6GaFYsf.jpeg)](https://www.youtube.com/watch?v=-OC59b1tNuc)
+[![Editable parts — quick look](https://i.imgur.com/VHQAaQS.png)](https://www.youtube.com/watch?v=gdKSknQKk4c)
+
+<sub>Full feature walkthrough → [youtube.com/watch?v=-OC59b1tNuc](https://www.youtube.com/watch?v=-OC59b1tNuc)</sub>
 
 ---
 
