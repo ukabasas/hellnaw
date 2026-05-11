@@ -15,6 +15,9 @@ class CadException implements Exception {
 }
 
 class CadService {
+  static const _startReceiveTimeout = Duration(minutes: 2);
+  static const _resultReceiveTimeout = Duration(minutes: 5);
+
   CadService(this._auth, this._apiKeys) {
     _dio = Dio(
       BaseOptions(
@@ -30,10 +33,16 @@ class CadService {
   final ApiKeyService _apiKeys;
   late final Dio _dio;
 
-  Future<Options> _authOptions() async {
+  static String createWorkflowId() =>
+      'state-${DateTime.now().microsecondsSinceEpoch}';
+
+  Future<Options> _authOptions({Duration? receiveTimeout}) async {
     final token = await _auth.getToken();
     if (token == null) throw AuthException('Please sign in again.');
-    return Options(headers: {'Authorization': 'Bearer $token'});
+    return Options(
+      headers: {'Authorization': 'Bearer $token'},
+      receiveTimeout: receiveTimeout,
+    );
   }
 
   String _errorMessage(DioException e) {
@@ -52,6 +61,9 @@ class CadService {
     }
     if (e.response?.statusCode == 401) {
       return 'GraphFlow rejected the current sign-in token. Please sign out and sign in again.';
+    }
+    if (e.type == DioExceptionType.receiveTimeout) {
+      return 'Generation is still starting. Nova3D will keep checking for the result.';
     }
     if (e.type == DioExceptionType.connectionError) {
       return 'The generation service is unavailable right now. Please try again shortly.';
@@ -73,17 +85,19 @@ class CadService {
     }
   }
 
-  Future<String> startGeneration(GenerationRequest request) async {
+  Future<String> startGeneration(
+    GenerationRequest request, {
+    String? workflowId,
+  }) async {
     final readiness = await checkReadiness();
     if (!readiness.ready) throw CadException(readiness.userMessage);
+    final requestedWorkflowId = workflowId ?? createWorkflowId();
 
     try {
       final apiKey = await _apiKeyFor(request.modelOption);
       final response = await _dio.post(
         '/run/state/$kSketchTo3dWorkflow',
-        queryParameters: {
-          'request_id': 'state-${DateTime.now().millisecondsSinceEpoch}',
-        },
+        queryParameters: {'request_id': requestedWorkflowId},
         data: {
           'payload': {
             'prompt': request.prompt.trim(),
@@ -100,14 +114,17 @@ class CadService {
           },
           'return_nodes': ['sketch_to_3d_generator'],
         },
-        options: await _authOptions(),
+        options: await _authOptions(receiveTimeout: _startReceiveTimeout),
       );
-      final workflowId = response.data['workflow_id'] as String?;
-      if (workflowId == null || workflowId.isEmpty) {
+      final returnedWorkflowId = response.data['workflow_id'] as String?;
+      if (returnedWorkflowId == null || returnedWorkflowId.isEmpty) {
         throw CadException('Generation did not return a workflow id.');
       }
-      return workflowId;
+      return returnedWorkflowId;
     } on DioException catch (e) {
+      if (_mayHaveStarted(e)) {
+        return requestedWorkflowId;
+      }
       throw CadException(_errorMessage(e));
     }
   }
@@ -140,7 +157,7 @@ class CadService {
     try {
       final resp = await _dio.get(
         '/result/$workflowId',
-        options: await _authOptions(),
+        options: await _authOptions(receiveTimeout: _resultReceiveTimeout),
       );
       return CadResult.fromJson(resp.data as Map<String, dynamic>);
     } on DioException catch (e) {
@@ -154,11 +171,24 @@ class CadService {
     String workflowId, {
     void Function(WorkflowStatus status)? onProgress,
   }) async {
-    final deadline = DateTime.now().add(const Duration(minutes: 30));
-
-    while (DateTime.now().isBefore(deadline)) {
+    while (true) {
       await Future.delayed(const Duration(seconds: 3));
-      final status = await getStatus(workflowId);
+      final WorkflowStatus status;
+      try {
+        status = await getStatus(workflowId);
+      } on CadException catch (e) {
+        if (_isRecoverableWorkflowLookupError(e)) {
+          onProgress?.call(
+            WorkflowStatus(
+              workflowId: workflowId,
+              state: WorkflowState.pending,
+              currentNode: 'sketch_to_3d_generator',
+            ),
+          );
+          continue;
+        }
+        rethrow;
+      }
       onProgress?.call(status);
 
       if (status.isTerminal) {
@@ -171,6 +201,39 @@ class CadService {
       }
     }
 
-    return getResult(workflowId);
+    while (true) {
+      try {
+        return await getResult(workflowId);
+      } on CadException catch (e) {
+        if (!_isRecoverableWorkflowLookupError(e)) rethrow;
+        onProgress?.call(
+          WorkflowStatus(
+            workflowId: workflowId,
+            state: WorkflowState.running,
+            currentNode: 'sketch_to_3d_generator',
+          ),
+        );
+        await Future.delayed(const Duration(seconds: 3));
+      }
+    }
+  }
+
+  bool _mayHaveStarted(DioException e) =>
+      e.type == DioExceptionType.receiveTimeout;
+
+  bool _isRecoverableWorkflowLookupError(CadException e) {
+    final message = e.message.toLowerCase();
+    if (message.contains('sign in') || message.contains('token')) return false;
+    if (message.contains('budget was exhausted')) return false;
+    return message.contains('404') ||
+        message.contains('workflow not found') ||
+        message.contains('unavailable') ||
+        message.contains('still starting') ||
+        message.contains('timeout') ||
+        message.contains('timed out') ||
+        message.contains('request failed (null)') ||
+        message.contains('request failed (502)') ||
+        message.contains('request failed (503)') ||
+        message.contains('request failed (504)');
   }
 }

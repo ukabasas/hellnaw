@@ -48,6 +48,10 @@ class MessageBubble extends StatelessWidget {
                   const SizedBox(height: 8),
                   _RetryButton(onRetry: onRetry!),
                 ],
+                if (!_isUser && message.workflowId != null) ...[
+                  const SizedBox(height: 6),
+                  _WorkflowIdBadge(workflowId: message.workflowId!),
+                ],
                 if (!message.isStreaming) ...[
                   const SizedBox(height: 4),
                   _Timestamp(message.createdAt),
@@ -115,6 +119,43 @@ class _BubbleContentState extends State<_BubbleContent> {
       ),
     );
   }
+}
+
+class _WorkflowIdBadge extends StatelessWidget {
+  const _WorkflowIdBadge({required this.workflowId});
+  final String workflowId;
+
+  @override
+  Widget build(BuildContext context) => ConstrainedBox(
+    constraints: const BoxConstraints(maxWidth: 640),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: SelectableText(
+            'WF $workflowId',
+            style: const TextStyle(
+              color: kTextMuted,
+              fontSize: 11,
+              height: 1.2,
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Tooltip(
+          message: 'Copy workflow id',
+          child: IconButton(
+            onPressed: () => Clipboard.setData(ClipboardData(text: workflowId)),
+            icon: const Icon(Icons.copy, size: 14),
+            color: kTextMuted,
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _CopyButton extends StatelessWidget {

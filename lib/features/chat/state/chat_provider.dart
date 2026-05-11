@@ -166,19 +166,24 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
 
   void _resumeActiveGenerations() {
     final active = state.messages
-        .where((m) => m.role == MessageRole.assistant && m.isStreaming)
+        .where(
+          (m) =>
+              m.role == MessageRole.assistant &&
+              m.workflowId != null &&
+              m.workflowId!.isNotEmpty &&
+              m.modelUrl == null,
+        )
         .toList();
     for (final msg in active) {
-      final workflowId = msg.workflowId;
-      if (workflowId == null || workflowId.isEmpty) {
-        _upsert(
-          msg.copyWith(
-            text: 'Generation status was lost. Please start a new 3D creation.',
-            isStreaming: false,
-          ),
-        );
-        continue;
-      }
+      final workflowId = msg.workflowId!;
+      _upsert(
+        msg.copyWith(
+          text: 'Checking generation status...',
+          isStreaming: true,
+          clearRetryRequest: true,
+        ),
+      );
+      _saveToPrefs(state.messages);
       _busy = true;
       _pollExistingGeneration(
         workflowId: workflowId,
@@ -227,6 +232,7 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
     String userId;
     String assistantId;
     DateTime assistantCreatedAt;
+    final workflowId = CadService.createWorkflowId();
 
     if (state.messages.isNotEmpty && state.messages.any((m) => m.isStreaming)) {
       // Already seeded — reuse those IDs for upserts.
@@ -245,6 +251,7 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
           seededAssistant.copyWith(
             text: 'Starting generation…',
             isStreaming: true,
+            workflowId: workflowId,
           ),
         ],
         loaded: true,
@@ -269,6 +276,7 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
             text: 'Starting generation…',
             createdAt: now,
             isStreaming: true,
+            workflowId: workflowId,
           ),
         ],
         loaded: true,
@@ -280,6 +288,7 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
       request: request,
       assistantId: assistantId,
       assistantCreatedAt: assistantCreatedAt,
+      workflowId: workflowId,
     );
   }
 
@@ -287,9 +296,13 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
     required GenerationRequest request,
     required String assistantId,
     required DateTime assistantCreatedAt,
+    required String workflowId,
   }) async {
     try {
-      final workflowId = await _cad.startGeneration(request);
+      final startedWorkflowId = await _cad.startGeneration(
+        request,
+        workflowId: workflowId,
+      );
       _upsert(
         MessageModel(
           id: assistantId,
@@ -297,12 +310,13 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
           text: 'Generating your 3D model...',
           createdAt: assistantCreatedAt,
           isStreaming: true,
-          workflowId: workflowId,
+          workflowId: startedWorkflowId,
         ),
       );
+      _saveToPrefs(state.messages);
 
       final result = await _runWorkflowWithProgress(
-        workflowId,
+        startedWorkflowId,
         assistantId: assistantId,
         assistantCreatedAt: assistantCreatedAt,
       );
@@ -312,12 +326,12 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
         id: assistantId,
         role: MessageRole.assistant,
         text: failed
-            ? 'Generation failed: ${result.errorMessage ?? 'Please try a different description.'}'
+            ? _failureText(result.errorMessage)
             : 'Your 3D model is ready.',
         createdAt: assistantCreatedAt,
         isStreaming: false,
         modelUrl: result.glbUrl,
-        workflowId: workflowId,
+        workflowId: startedWorkflowId,
         retryRequest: failed ? request : null,
       );
       _upsert(msg);
@@ -326,9 +340,10 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
       final msg = MessageModel(
         id: assistantId,
         role: MessageRole.assistant,
-        text: 'Generation failed: ${e.message}',
+        text: _failureText(e.message),
         createdAt: assistantCreatedAt,
         isStreaming: false,
+        workflowId: workflowId,
         retryRequest: request,
       );
       _upsert(msg);
@@ -340,6 +355,7 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
         text: 'Failed to generate model. Please try again.',
         createdAt: assistantCreatedAt,
         isStreaming: false,
+        workflowId: workflowId,
         retryRequest: request,
       );
       _upsert(msg);
@@ -386,7 +402,7 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
           id: assistantId,
           role: MessageRole.assistant,
           text: failed
-              ? 'Generation failed: ${result.errorMessage ?? 'Please try a different description.'}'
+              ? _failureText(result.errorMessage)
               : 'Your 3D model is ready.',
           createdAt: assistantCreatedAt,
           isStreaming: false,
@@ -399,7 +415,7 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
         MessageModel(
           id: assistantId,
           role: MessageRole.assistant,
-          text: 'Generation failed: ${e.message}',
+          text: _failureText(e.message),
           createdAt: assistantCreatedAt,
           isStreaming: false,
           workflowId: workflowId,
@@ -418,19 +434,32 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
       orElse: () => throw StateError('not found'),
     );
     if (msg.retryRequest == null) return;
+    final workflowId = CadService.createWorkflowId();
     _upsert(
       msg.copyWith(
         text: 'Retrying…',
         isStreaming: true,
+        workflowId: workflowId,
         clearRetryRequest: true,
       ),
     );
+    _saveToPrefs(state.messages);
     _busy = true;
     await _runGeneration(
       request: msg.retryRequest!,
       assistantId: failedMessageId,
       assistantCreatedAt: msg.createdAt,
+      workflowId: workflowId,
     );
+  }
+
+  String _failureText(String? detail) {
+    final clean = detail?.trim();
+    if (clean == null || clean.isEmpty) {
+      return 'Generation failed. Try another prompt, model, or provider key.';
+    }
+    if (clean.toLowerCase().startsWith('generation failed')) return clean;
+    return clean;
   }
 
   void _upsert(MessageModel msg) {

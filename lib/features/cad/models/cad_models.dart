@@ -119,32 +119,54 @@ class CadResult {
   final String? glbUrl;
   final bool failed;
   final String? errorMessage;
+  final String? errorCategory;
+  final String? provider;
+  final bool retryable;
 
-  const CadResult({this.glbUrl, required this.failed, this.errorMessage});
+  const CadResult({
+    this.glbUrl,
+    required this.failed,
+    this.errorMessage,
+    this.errorCategory,
+    this.provider,
+    this.retryable = false,
+  });
 
   factory CadResult.fromJson(Map<String, dynamic> json) {
-    final glbUrl = _extractGlbUrl(json);
-    final errorMessage = _extractError(json);
+    final payload = _extractGeneratorPayload(json);
+    final glbUrl = payload == null ? null : _extractGlbUrl(payload);
+    final failure = payload == null ? null : _extractFailure(payload);
+    final errorMessage = failure?.message ?? _extractRootError(json);
     final failed = glbUrl == null && (_isFailed(json) || errorMessage != null);
 
     return CadResult(
       glbUrl: glbUrl,
       failed: failed,
       errorMessage: errorMessage,
+      errorCategory: failure?.category,
+      provider: failure?.provider,
+      retryable: failure?.retryable ?? false,
     );
   }
 
-  static String? _extractGlbUrl(Map<String, dynamic> json) {
+  static Map<String, dynamic>? _extractGeneratorPayload(
+    Map<String, dynamic> json,
+  ) {
     final generator = json['sketch_to_3d_generator'];
     if (generator is! List || generator.isEmpty) return null;
     final first = generator.first;
     if (first is! Map) return null;
+    return _asStringMap(first);
+  }
 
-    final modelUrl = first['model_url'] as String?;
+  static String? _extractGlbUrl(Map<String, dynamic> payload) {
+    final unwrapped = _unwrapResult(payload);
+
+    final modelUrl = unwrapped['model_url'] as String?;
     if (modelUrl != null && modelUrl.isNotEmpty) return modelUrl;
 
     for (final artifactKey in ['model', 'model_artifact']) {
-      final artifact = first[artifactKey];
+      final artifact = unwrapped[artifactKey];
       if (artifact is Map) {
         final url = artifact['url'] as String?;
         if (url != null && url.isNotEmpty) return url;
@@ -153,19 +175,124 @@ class CadResult {
     return null;
   }
 
-  static String? _extractError(Map<String, dynamic> json) {
-    final generator = json['sketch_to_3d_generator'];
-    if (generator is! List || generator.isEmpty) return null;
-    final first = generator.first;
-    if (first is! Map) return null;
+  static _FailureInfo? _extractFailure(Map<String, dynamic> payload) {
+    final unwrapped = _unwrapResult(payload);
+    final status = (unwrapped['status'] as String?)?.toLowerCase();
+    final action = (unwrapped['action'] as String?)?.toLowerCase();
+    final ok = unwrapped['ok'];
+    final failureMap = _asStringMap(unwrapped['failure']);
 
-    final status = (first['status'] as String?)?.toLowerCase();
-    final action = (first['action'] as String?)?.toLowerCase();
-    if (status != 'failed' && action != 'error') return null;
+    final failed =
+        status == 'failed' ||
+        action == 'error' ||
+        ok == false ||
+        failureMap != null ||
+        unwrapped['error_category'] != null ||
+        unwrapped['user_message'] != null;
+    if (!failed) return null;
 
-    final error = first['error'] ?? first['detail'] ?? first['message'];
-    if (error == null) return 'Generation failed.';
-    return error.toString();
+    final category =
+        _stringValue(failureMap?['category']) ??
+        _stringValue(unwrapped['error_category']);
+    final provider =
+        _stringValue(failureMap?['provider']) ??
+        _stringValue(unwrapped['provider']);
+    final retryable =
+        _boolValue(failureMap?['retryable']) ??
+        _boolValue(unwrapped['retryable']) ??
+        false;
+
+    final message =
+        _stringValue(failureMap?['user_message']) ??
+        _stringValue(failureMap?['message']) ??
+        _stringValue(unwrapped['user_message']) ??
+        _stringValue(unwrapped['message']) ??
+        _stringValue(unwrapped['detail']) ??
+        _stringValue(unwrapped['error']) ??
+        _messageForCategory(category, provider, retryable);
+
+    return _FailureInfo(
+      message: message,
+      category: category,
+      provider: provider,
+      retryable: retryable,
+    );
+  }
+
+  static String? _extractRootError(Map<String, dynamic> json) {
+    final error = json['error'] ?? json['detail'] ?? json['message'];
+    if (error == null) return null;
+    return _stringValue(error) ?? error.toString();
+  }
+
+  static Map<String, dynamic> _unwrapResult(Map<String, dynamic> payload) {
+    final result = _asStringMap(payload['result']);
+    return result ?? payload;
+  }
+
+  static Map<String, dynamic>? _asStringMap(Object? value) {
+    if (value is! Map) return null;
+    return value.map((key, value) => MapEntry(key.toString(), value));
+  }
+
+  static String? _stringValue(Object? value) {
+    if (value == null) return null;
+    if (value is String) return value.trim().isEmpty ? null : value.trim();
+    if (value is Map) {
+      final userMessage = _stringValue(value['user_message']);
+      if (userMessage != null) return userMessage;
+      final message = _stringValue(value['message']);
+      if (message != null) return message;
+    }
+    return value.toString();
+  }
+
+  static bool? _boolValue(Object? value) {
+    if (value is bool) return value;
+    if (value is String) {
+      final normalized = value.toLowerCase().trim();
+      if (normalized == 'true') return true;
+      if (normalized == 'false') return false;
+    }
+    return null;
+  }
+
+  static String _messageForCategory(
+    String? category,
+    String? provider,
+    bool retryable,
+  ) {
+    final label = provider == null || provider.isEmpty
+        ? 'The selected provider'
+        : provider;
+    return switch (category) {
+      'invalid_api_key' =>
+        '$label rejected this API key. Check the key in Settings or use another provider.',
+      'missing_api_key' =>
+        '$label is missing an API key. Add a key in Settings and try again.',
+      'model_access_denied' =>
+        '$label does not allow this key to use the selected model. Choose another model or provider key.',
+      'unsupported_provider_for_model' =>
+        '$label cannot run the selected model. Choose a compatible model/provider pair.',
+      'insufficient_credits' =>
+        '$label does not have enough credits or balance for this generation.',
+      'quota_or_rate_limit' =>
+        '$label quota or rate limit was reached. Wait a bit or use another provider key.',
+      'provider_unavailable' =>
+        '$label is temporarily unavailable or overloaded. Retry shortly or switch providers.',
+      'api_timeout' =>
+        '$label timed out while generating. Retry or switch providers.',
+      'blender_generation_failed' =>
+        'The generated 3D script could not produce a valid model after automatic repair attempts.',
+      'artifact_upload_failed' =>
+        'The model was generated, but Nova3D could not prepare the download artifact.',
+      'generation_timeout' =>
+        'Generation took longer than expected. It may still finish later; retry if it does not appear in history.',
+      _ =>
+        retryable
+            ? 'Generation failed. Retry shortly or switch providers.'
+            : 'Generation failed. Try another prompt, model, or provider key.',
+    };
   }
 
   static bool _isFailed(Map<String, dynamic> json) {
@@ -180,6 +307,20 @@ class CadResult {
     }
     return false;
   }
+}
+
+class _FailureInfo {
+  const _FailureInfo({
+    required this.message,
+    this.category,
+    this.provider,
+    this.retryable = false,
+  });
+
+  final String message;
+  final String? category;
+  final String? provider;
+  final bool retryable;
 }
 
 // ── Credits (from GET /api/credits/balance/me) ────────────────────────────────
