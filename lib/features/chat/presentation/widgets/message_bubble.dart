@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:nova3d_frontend/core/theme.dart';
+import 'package:nova3d_frontend/features/cad/state/cad_provider.dart';
 import 'package:nova3d_frontend/shared/models/message_model.dart';
 import 'package:nova3d_frontend/shared/widgets/glb_viewer.dart';
 
-class MessageBubble extends StatelessWidget {
+class MessageBubble extends ConsumerWidget {
   const MessageBubble({super.key, required this.message, this.onRetry});
   final MessageModel message;
   final VoidCallback? onRetry;
@@ -12,7 +14,10 @@ class MessageBubble extends StatelessWidget {
   bool get _isUser => message.role == MessageRole.user;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final editModelOptions =
+        ref.watch(generationModelOptionsProvider).valueOrNull ?? const [];
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
@@ -42,6 +47,9 @@ class MessageBubble extends StatelessWidget {
                       key: ValueKey(message.id),
                       src: message.modelUrl!,
                       codeArtifact: message.codeArtifact,
+                      sourceWorkflowId: message.workflowId,
+                      editModelOptions: editModelOptions,
+                      defaultEditModelOptionId: message.modelOptionId,
                     ),
                   ),
                 ],

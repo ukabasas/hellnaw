@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:nova3d_frontend/core/theme.dart';
+import 'package:nova3d_frontend/features/cad/models/generation_model_option.dart';
 
 class GlbViewerPlatform extends StatelessWidget {
   const GlbViewerPlatform({
@@ -7,11 +8,17 @@ class GlbViewerPlatform extends StatelessWidget {
     required this.src,
     required this.autoRotate,
     this.codeArtifact,
+    this.sourceWorkflowId,
+    this.editModelOptions = const [],
+    this.defaultEditModelOptionId,
   });
 
   final String src;
   final bool autoRotate;
   final Map<String, dynamic>? codeArtifact;
+  final String? sourceWorkflowId;
+  final List<GenerationModelOption> editModelOptions;
+  final String? defaultEditModelOptionId;
 
   @override
   Widget build(BuildContext context) {

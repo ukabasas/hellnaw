@@ -14,8 +14,8 @@
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 html, body { width:100%; height:100%; overflow:hidden; background:#0d0d0d; font-family:'Inter',system-ui,sans-serif; color:#e0e0e0; }
-button, input { font: inherit; }
-button:focus-visible, input:focus-visible { outline:2px solid rgba(255,255,255,.55); outline-offset:2px; }
+button, input, select, textarea { font: inherit; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline:2px solid rgba(255,255,255,.55); outline-offset:2px; }
 
 .app { display:flex; width:100%; height:100%; position:relative; }
 
@@ -180,6 +180,16 @@ body.full-ui .viewport-action { left:12px; }
   color:#e0e0e0; font-size:12px; line-height:1.45; font-family:inherit;
 }
 .edit-input:focus { border-color:#555; outline:none; }
+.edit-model-select {
+  width:100%; height:34px; margin-bottom:10px; padding:0 10px;
+  background:#1e1e1e; border:1px solid #2a2a2a; border-radius:6px;
+  color:#e0e0e0; font-size:11px; font-family:inherit;
+}
+.edit-model-select:focus { border-color:#555; outline:none; }
+.edit-model-select:disabled,
+.edit-input:disabled {
+  opacity:.55; cursor:not-allowed; color:#777;
+}
 .edit-status {
   display:none; margin-top:8px; padding:8px 10px; border-radius:6px;
   border:1px solid rgba(255,255,255,.08); background:#171717;
@@ -187,6 +197,7 @@ body.full-ui .viewport-action { left:12px; }
 }
 .edit-status.active { display:block; }
 .edit-status.error { color:#fca5a5; border-color:rgba(248,113,113,.4); background:rgba(248,113,113,.08); }
+.edit-status.busy { color:#bfdbfe; border-color:rgba(96,165,250,.35); background:rgba(96,165,250,.08); }
 
 /* ── Stats bar ── */
 .stats {
@@ -594,13 +605,17 @@ body.full-ui .selection-toolbar.has-selection { display:block; }
     <!-- AI edit flyout -->
     <div class="flyout" id="flyAiEdit" style="top:392px">
       <h3>AI Edit</h3>
+      <h4>Model</h4>
+      <select class="edit-model-select" id="editModelSelect" aria-label="AI edit model"></select>
       <h4>Regenerate Selected Part</h4>
       <textarea class="edit-input" id="regenPrompt" placeholder="Describe how the selected part should change..."></textarea>
       <button class="fo-btn" id="regenBtn" onclick="requestRegeneratePart()" style="border-color:#fff;color:#fff;margin-top:6px">Regenerate Selected Part</button>
+      <div class="edit-status" id="regenStatus"></div>
       <div class="fo-sep"></div>
       <h4>Add To Part</h4>
       <textarea class="edit-input" id="addPartPrompt" placeholder="Describe the new part to add..."></textarea>
       <button class="fo-btn" id="addPartBtn" onclick="requestAddPart()" style="border-color:#fff;color:#fff;margin-top:6px">Add To Part</button>
+      <div class="edit-status" id="addPartStatus"></div>
       <div class="edit-status" id="aiEditStatus"></div>
     </div>
 
@@ -874,7 +889,17 @@ const redoHistory = [];
 const MAX_UNDO    = 30;
 let currentCodeArtifact = null;
 let currentModelUrl = null;
+let currentSourceWorkflowId = '';
 let activeEditRequestId = null;
+let editModelOptions = [];
+let editDefaultModelId = '';
+const DEFAULT_EDIT_MODEL_OPTIONS = [
+  { id:'anthropic_claude_sonnet', label:'claude-sonnet-4-6', provider:'Anthropic' },
+  { id:'anthropic_claude_opus', label:'claude-opus-4-6', provider:'Anthropic' },
+  { id:'anthropic_claude_opus_latest', label:'claude-opus-4-7', provider:'Anthropic' },
+  { id:'openai_gpt55', label:'gpt-5.5', provider:'OpenAI' },
+  { id:'gemini_gemini', label:'gemini-3.1-pro-preview', provider:'Gemini' },
+];
 let viewerId = 'standalone-viewer';
 let stateKey = 'standalone-viewer';
 
@@ -2113,7 +2138,7 @@ function selectedPartType() {
 
 function setAiBusy(busy) {
   activeEditRequestId = busy ? activeEditRequestId : null;
-  ['regenBtn','addPartBtn'].forEach(id => {
+  ['regenBtn','addPartBtn','regenPrompt','addPartPrompt','editModelSelect'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.disabled = busy;
   });
@@ -2125,22 +2150,144 @@ function showEditStatus(message, isError = false) {
   el.textContent = message;
   el.classList.add('active');
   el.classList.toggle('error', isError);
+  el.classList.toggle('busy', !isError && Boolean(activeEditRequestId));
+}
+
+function editStatusId(operation) {
+  return operation === 'add_3d_part' ? 'addPartStatus' : 'regenStatus';
+}
+
+function editButtonId(operation) {
+  return operation === 'add_3d_part' ? 'addPartBtn' : 'regenBtn';
+}
+
+function showSectionStatus(operation, message, isError = false) {
+  const el = document.getElementById(editStatusId(operation));
+  if (el) {
+    el.textContent = message;
+    el.classList.add('active');
+    el.classList.toggle('error', isError);
+    el.classList.toggle('busy', !isError && Boolean(activeEditRequestId));
+    try { el.scrollIntoView({ block:'nearest' }); } catch(_) {}
+  }
+  showEditStatus(message, isError);
+}
+
+function editStatusMessage(message, workflowId) {
+  const id = String(workflowId || '').trim();
+  return id ? `${message}\nWorkflow ID: ${id}` : message;
+}
+
+function flashEditButton(operation, message) {
+  const btn = document.getElementById(editButtonId(operation));
+  if (!btn) return;
+  const previous = btn.dataset.idleLabel || btn.textContent;
+  btn.textContent = message;
+  window.setTimeout(() => {
+    if (!activeEditRequestId) btn.textContent = previous;
+  }, 1500);
+}
+
+function renderEditModelSelector() {
+  const select = document.getElementById('editModelSelect');
+  if (!select) return;
+  if (!editModelOptions.length) editModelOptions = editModelOptionsFromStorage();
+  if (!editModelOptions.length) editModelOptions = DEFAULT_EDIT_MODEL_OPTIONS;
+  const previous = select.value || editDefaultModelId;
+  select.innerHTML = '';
+  editModelOptions.forEach(option => {
+    const opt = document.createElement('option');
+    opt.value = option.id || '';
+    opt.textContent = option.provider ? `${option.label} · ${option.provider}` : option.label;
+    select.appendChild(opt);
+  });
+  const next = editModelOptions.some(option => option.id === previous)
+    ? previous
+    : (editModelOptions.some(option => option.id === editDefaultModelId)
+        ? editDefaultModelId
+        : editModelOptions[0].id);
+  select.value = next || '';
+  select.disabled = Boolean(activeEditRequestId);
+}
+
+function storageValue(name) {
+  try {
+    return localStorage.getItem(name) ?? localStorage.getItem(`flutter.${name}`);
+  } catch(_) {
+    return null;
+  }
+}
+
+function storageBool(name) {
+  const value = storageValue(name);
+  return value === 'true' || value === true;
+}
+
+function storageHasKey(provider) {
+  const key = storageValue(`nova3d_api_key_${provider}`);
+  return typeof key === 'string' && key.trim().length > 0;
+}
+
+function editModelOptionsFromStorage() {
+  const options = [];
+  if (storageBool('nova3d_api_key_valid_anthropic') && storageHasKey('anthropic')) {
+    options.push(
+      { id:'anthropic_claude_sonnet', label:'claude-sonnet-4-6', provider:'Anthropic' },
+      { id:'anthropic_claude_opus', label:'claude-opus-4-6', provider:'Anthropic' },
+      { id:'anthropic_claude_opus_latest', label:'claude-opus-4-7', provider:'Anthropic' },
+    );
+  }
+  if (storageBool('nova3d_api_key_valid_openai') && storageHasKey('openai')) {
+    options.push({ id:'openai_gpt55', label:'gpt-5.5', provider:'OpenAI' });
+  }
+  if (storageBool('nova3d_api_key_valid_gemini') && storageHasKey('gemini')) {
+    options.push({ id:'gemini_gemini', label:'gemini-3.1-pro-preview', provider:'Gemini' });
+  }
+  return options;
+}
+
+function selectedEditModelId() {
+  return document.getElementById('editModelSelect')?.value || '';
+}
+
+function applyEditConfig(data) {
+  if (!data || typeof data !== 'object') return;
+  if (data.codeArtifact !== undefined) currentCodeArtifact = data.codeArtifact || null;
+  if (data.sourceWorkflowId !== undefined) currentSourceWorkflowId = String(data.sourceWorkflowId || '');
+  if (Array.isArray(data.editModelOptions)) {
+    editModelOptions = data.editModelOptions.filter(option => option && option.id && option.label);
+  }
+  if (data.editDefaultModelId !== undefined) editDefaultModelId = String(data.editDefaultModelId || '');
+  renderEditModelSelector();
 }
 
 function requestAiEdit(operation, description, partType = '') {
   const clean = description.trim();
   if (!clean) {
-    showEditStatus('Describe the edit first.', true);
+    showSectionStatus(operation, 'Describe the edit first.', true);
+    flashEditButton(operation, 'Needs description');
     return;
   }
-  if (!currentCodeArtifact) {
-    showEditStatus('This model has no code artifact. Generate it again before AI editing.', true);
+  if (!currentCodeArtifact && !currentSourceWorkflowId) {
+    showSectionStatus(operation, 'This model has no code artifact. Generate it again before AI editing.', true);
+    flashEditButton(operation, 'No source code');
+    return;
+  }
+  const modelOptionId = selectedEditModelId();
+  if (!modelOptionId) {
+    showSectionStatus(operation, 'Add a Gemini, Anthropic, or OpenAI key in Settings before using AI edits.', true);
+    flashEditButton(operation, 'Needs API key');
     return;
   }
   if (activeEditRequestId) return;
   activeEditRequestId = `edit-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   setAiBusy(true);
-  showEditStatus(operation === 'add_3d_part' ? 'Adding part...' : 'Regenerating selected part...');
+  const activeButton = document.getElementById(editButtonId(operation));
+  if (activeButton) {
+    activeButton.dataset.idleLabel = activeButton.textContent;
+    activeButton.textContent = 'Starting...';
+  }
+  showSectionStatus(operation, operation === 'add_3d_part' ? 'Starting add-part edit...' : 'Starting selected-part regeneration...');
   window.parent?.postMessage({
     type:'nova3d-edit-request',
     viewerId,
@@ -2149,7 +2296,15 @@ function requestAiEdit(operation, description, partType = '') {
     description:clean,
     partType,
     codeArtifact:currentCodeArtifact,
+    sourceWorkflowId:currentSourceWorkflowId,
+    modelOptionId,
   }, '*');
+  const sentRequestId = activeEditRequestId;
+  window.setTimeout(() => {
+    if (activeEditRequestId === sentRequestId) {
+      showSectionStatus(operation, 'Sent edit request to Nova3D. Waiting for workflow status...');
+    }
+  }, 1200);
 }
 
 window.requestRegeneratePart = function() {
@@ -2166,20 +2321,50 @@ window.requestAddPart = function() {
 
 window.addEventListener('message', event => {
   const data = event.data || {};
+  if (data.type === 'nova3d-edit-config') {
+    applyEditConfig(data);
+    return;
+  }
   if (data.type !== 'nova3d-edit-result') return;
   if (data.requestId !== activeEditRequestId) return;
+  if (data.status === 'running') {
+    showSectionStatus(
+      data.operation || 'regenerate_3d_part',
+      editStatusMessage(data.message || 'Editing model...', data.workflowId),
+    );
+    return;
+  }
   setAiBusy(false);
+  ['regenBtn','addPartBtn'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el?.dataset.idleLabel) {
+      el.textContent = el.dataset.idleLabel;
+      delete el.dataset.idleLabel;
+    }
+  });
   if (data.status !== 'completed') {
-    showEditStatus(data.message || 'Edit failed.', true);
+    showSectionStatus(
+      data.operation || 'regenerate_3d_part',
+      editStatusMessage(data.message || 'Edit failed.', data.workflowId),
+      true,
+    );
     return;
   }
   if (!data.modelUrl || !data.codeArtifact) {
-    showEditStatus('Edit finished but did not return a usable model artifact.', true);
+    showSectionStatus(
+      data.operation || 'regenerate_3d_part',
+      editStatusMessage('Edit finished but did not return a usable model artifact.', data.workflowId),
+      true,
+    );
     return;
   }
   pushUndoSnapshot(data.operation || 'ai-edit');
   currentCodeArtifact = data.codeArtifact;
-  showEditStatus('Edit complete.');
+  if (data.workflowId) currentSourceWorkflowId = String(data.workflowId);
+  showSectionStatus(
+    data.operation || 'regenerate_3d_part',
+    editStatusMessage('Edit complete.', data.workflowId),
+  );
   loadGLB(data.modelUrl, { recordHistory:false });
 });
 
@@ -2200,6 +2385,20 @@ document.addEventListener('DOMContentLoaded', () => {
   if (artifactParam) {
     try { currentCodeArtifact = JSON.parse(artifactParam); } catch(e) { currentCodeArtifact = null; }
   }
+  const modelOptionsParam = params.get('editModelOptions');
+  if (modelOptionsParam) {
+    try {
+      const parsed = JSON.parse(modelOptionsParam);
+      editModelOptions = Array.isArray(parsed)
+        ? parsed.filter(option => option && option.id && option.label)
+        : [];
+    } catch(e) {
+      editModelOptions = [];
+    }
+  }
+  editDefaultModelId = params.get('editDefaultModelId') || '';
+  currentSourceWorkflowId = params.get('sourceWorkflowId') || '';
+  renderEditModelSelector();
 
   const glbUrl = params.get('glb');
   const autoR  = params.get('autoRotate');

@@ -199,15 +199,41 @@
       if (data.type === 'nova3d-edit-request') {
         var editFrame = findNova3dFrame(event.source);
         if (!editFrame) return;
+        function postEditBridgeResult(payload) {
+          try {
+            editFrame.contentWindow && editFrame.contentWindow.postMessage(Object.assign({
+              type: 'nova3d-edit-result',
+              requestId: String(data.requestId || '')
+            }, payload), '*');
+          } catch (_) {}
+        }
+        postEditBridgeResult({
+          status: 'running',
+          message: 'Nova3D received the edit request. Preparing workflow...'
+        });
         var handler = window.__nova3dEditHandlers && window.__nova3dEditHandlers[String(data.viewerId || '')];
         if (typeof handler === 'function') {
-          handler(
-            String(data.requestId || ''),
-            String(data.operation || ''),
-            String(data.description || ''),
-            String(data.partType || ''),
-            JSON.stringify(data.codeArtifact || null)
-          );
+          try {
+            handler(JSON.stringify({
+              requestId: String(data.requestId || ''),
+              operation: String(data.operation || ''),
+              description: String(data.description || ''),
+              partType: String(data.partType || ''),
+              codeArtifact: data.codeArtifact || null,
+              sourceWorkflowId: String(data.sourceWorkflowId || ''),
+              modelOptionId: String(data.modelOptionId || '')
+            }));
+          } catch (err) {
+            postEditBridgeResult({
+              status: 'failed',
+              message: 'Nova3D could not start the edit workflow in the browser bridge.'
+            });
+          }
+        } else {
+          postEditBridgeResult({
+            status: 'failed',
+            message: 'Nova3D edit bridge is not ready. Close and reopen this model preview.'
+          });
         }
         return;
       }

@@ -132,6 +132,7 @@ class CadService {
   Future<String> startRegeneratePart({
     required Map<String, dynamic> codeArtifact,
     required String description,
+    required GenerationModelOption modelOption,
     String? partType,
     String? workflowId,
   }) {
@@ -139,6 +140,7 @@ class CadService {
       workflow: kRegenerate3dPartWorkflow,
       returnNode: 'regenerate_3d_part',
       workflowId: workflowId,
+      modelOption: modelOption,
       payload: {
         'code_artifact': codeArtifact,
         'description': description.trim(),
@@ -152,12 +154,14 @@ class CadService {
   Future<String> startAddPart({
     required Map<String, dynamic> codeArtifact,
     required String description,
+    required GenerationModelOption modelOption,
     String? workflowId,
   }) {
     return _startEditWorkflow(
       workflow: kAdd3dPartWorkflow,
       returnNode: 'add_3d_part',
       workflowId: workflowId,
+      modelOption: modelOption,
       payload: {
         'code_artifact': codeArtifact,
         'description': description.trim(),
@@ -169,6 +173,7 @@ class CadService {
     required String workflow,
     required String returnNode,
     required Map<String, dynamic> payload,
+    required GenerationModelOption modelOption,
     String? workflowId,
   }) async {
     if ((payload['description'] as String? ?? '').isEmpty) {
@@ -177,16 +182,15 @@ class CadService {
     final requestedWorkflowId = workflowId ?? createWorkflowId();
 
     try {
-      final option = await _defaultModelOption();
-      final apiKey = await _apiKeyFor(option);
+      final apiKey = await _apiKeyFor(modelOption);
       final response = await _dio.post(
         '/run/state/$workflow',
         queryParameters: {'request_id': requestedWorkflowId},
         data: {
           'payload': {
             ...payload,
-            'llm': option.llm,
-            'provider': option.payloadProvider,
+            'llm': modelOption.llm,
+            'provider': modelOption.payloadProvider,
             'api_key': apiKey,
           },
           'return_nodes': [returnNode],
@@ -211,15 +215,6 @@ class CadService {
       throw CadException('Add a ${option.keyProvider.label} key in Settings.');
     }
     return apiKey;
-  }
-
-  Future<GenerationModelOption> _defaultModelOption() async {
-    final keys = await _apiKeys.loadValidKeys();
-    final options = GenerationModelOption.forKeys(keys);
-    if (options.isEmpty) {
-      throw CadException('Add a Gemini, Anthropic, or OpenAI key in Settings.');
-    }
-    return options.first;
   }
 
   Future<WorkflowStatus> getStatus(String workflowId) async {

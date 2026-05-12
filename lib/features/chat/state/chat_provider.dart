@@ -333,6 +333,7 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
         modelUrl: result.glbUrl,
         workflowId: startedWorkflowId,
         codeArtifact: result.codeArtifact,
+        modelOptionId: request.modelOption.id,
         retryRequest: failed ? request : null,
       );
       _upsert(msg);

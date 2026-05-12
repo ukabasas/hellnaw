@@ -28,6 +28,12 @@ class GenerationModelOption {
 
   String get payloadProvider => provider.id;
 
+  static const all = [
+    ..._anthropicOptions,
+    _openAiOption,
+    _geminiOption,
+  ];
+
   static List<GenerationModelOption> forKeys(Map<String, String> keys) {
     final options = <GenerationModelOption>[];
     if ((keys[AiProvider.anthropic.id] ?? '').isNotEmpty) {

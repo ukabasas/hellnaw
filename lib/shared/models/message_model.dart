@@ -11,6 +11,7 @@ class MessageModel {
   final String? modelUrl;
   final String? workflowId;
   final Map<String, dynamic>? codeArtifact;
+  final String? modelOptionId;
   // Shown as a thumbnail in the user bubble.
   final String? imageDataUrl;
   // Non-null on failed assistant messages — enables the retry button.
@@ -25,6 +26,7 @@ class MessageModel {
     this.modelUrl,
     this.workflowId,
     this.codeArtifact,
+    this.modelOptionId,
     this.imageDataUrl,
     this.retryRequest,
   });
@@ -35,6 +37,7 @@ class MessageModel {
     String? modelUrl,
     String? workflowId,
     Map<String, dynamic>? codeArtifact,
+    String? modelOptionId,
     String? imageDataUrl,
     GenerationRequest? retryRequest,
     bool clearRetryRequest = false,
@@ -47,6 +50,7 @@ class MessageModel {
     modelUrl: modelUrl ?? this.modelUrl,
     workflowId: workflowId ?? this.workflowId,
     codeArtifact: codeArtifact ?? this.codeArtifact,
+    modelOptionId: modelOptionId ?? this.modelOptionId,
     imageDataUrl: imageDataUrl ?? this.imageDataUrl,
     retryRequest: clearRetryRequest
         ? null
@@ -64,6 +68,7 @@ class MessageModel {
     if (modelUrl != null) 'model_url': modelUrl,
     if (workflowId != null) 'workflow_id': workflowId,
     if (codeArtifact != null) 'code_artifact': codeArtifact,
+    if (modelOptionId != null) 'model_option_id': modelOptionId,
     if (imageDataUrl != null) 'image_data_url': imageDataUrl,
   };
 
@@ -76,6 +81,7 @@ class MessageModel {
     modelUrl: json['model_url'] as String?,
     workflowId: json['workflow_id'] as String?,
     codeArtifact: _asStringMap(json['code_artifact']),
+    modelOptionId: json['model_option_id'] as String?,
     imageDataUrl: json['image_data_url'] as String?,
   );
 
@@ -89,6 +95,7 @@ class MessageModel {
     modelUrl: json['content']?['model_url'] as String?,
     workflowId: json['content']?['workflow_id'] as String?,
     codeArtifact: _asStringMap(json['content']?['code_artifact']),
+    modelOptionId: json['content']?['model_option_id'] as String?,
     imageDataUrl: json['content']?['image_data_url'] as String?,
   );
 
