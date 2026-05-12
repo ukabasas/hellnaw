@@ -1500,14 +1500,93 @@ function snapshotFromData(data) {
   };
 }
 
-function saveEditorState() {
-  // Fullscreen now keeps the same iframe alive, so the authoritative edit
-  // state is the in-memory Three.js scene/history. Serializing large meshes
-  // into sessionStorage is slow and can exceed browser quota.
+// ── IndexedDB persistence ─────────────────────────────────────────────────────
+// Stores the full undo/redo history and the current scene so edits survive
+// page refreshes and chat navigation.  Each model has its own record keyed by
+// stateKey (a hash of the original GLB URL).
+
+let _idb = null;
+function _idbOpen() {
+  if (_idb) return Promise.resolve(_idb);
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('nova3d-editor', 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore('states');
+    req.onsuccess = e => { _idb = e.target.result; resolve(_idb); };
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+function _idbSet(key, value) {
+  return _idbOpen().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction('states', 'readwrite');
+    tx.objectStore('states').put(value, key);
+    tx.oncomplete = resolve;
+    tx.onerror = e => reject(e.target.error);
+  }));
+}
+function _idbGet(key) {
+  return _idbOpen().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction('states', 'readonly');
+    const req = tx.objectStore('states').get(key);
+    req.onsuccess = e => resolve(e.target.result ?? null);
+    req.onerror   = e => reject(e.target.error);
+  }));
 }
 
-function restoreEditorState() {
-  return false;
+let _saveTimer = null;
+function saveEditorState() {
+  // Debounce rapid calls (every undo push, resize, etc.) into one write.
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(_persistEditorState, 800);
+}
+
+async function _persistEditorState() {
+  if (!loadedMeshes.length) return;
+  // Capture the current scene as a snapshot and convert everything to plain
+  // serialisable data BEFORE any await so we don't race with scene mutations.
+  const current = captureSnapshot('_saved');
+  if (!current) return;
+  const payload = {
+    version: 2,
+    timestamp: Date.now(),
+    codeArtifact: currentCodeArtifact,
+    modelUrl: currentModelUrl,
+    currentState: snapshotToData(current),
+    undoHistory:  undoHistory.map(snapshotToData),
+    redoHistory:  redoHistory.map(snapshotToData),
+  };
+  disposeSnapshot(current); // free Three.js memory; plain data is already copied
+  try {
+    await _idbSet(editorStorageKey(), payload);
+  } catch(e) {
+    console.warn('[nova3d] saveEditorState failed:', e);
+  }
+}
+
+async function restoreEditorState() {
+  try {
+    const data = await _idbGet(editorStorageKey());
+    if (!data || data.version < 2) return false;
+
+    currentCodeArtifact = data.codeArtifact ?? null;
+    currentModelUrl     = data.modelUrl     ?? null;
+
+    // Rebuild undo/redo stacks first so syncHistoryUi (called by restoreSnapshot)
+    // sees the correct history.
+    undoHistory.splice(0, undoHistory.length,
+      ...(data.undoHistory ?? []).map(snapshotFromData).filter(Boolean));
+    redoHistory.splice(0, redoHistory.length,
+      ...(data.redoHistory ?? []).map(snapshotFromData).filter(Boolean));
+
+    const snap = snapshotFromData(data.currentState);
+    if (!snap || !restoreSnapshot(snap, { skipPersist: true })) return false;
+
+    // Re-frame the camera once the container has its real dimensions.
+    requestAnimationFrame(() => { onResize(); if (loadedMeshes.length) frameCameraToModel(modelGroup); });
+    return true;
+  } catch(e) {
+    console.warn('[nova3d] restoreEditorState failed:', e);
+    return false;
+  }
 }
 
 function pushUndoSnapshot(action) {
@@ -2107,14 +2186,14 @@ function setupViewportMode() {
         saveEditorState();
         setViewportMode(false);
         if (window.parent && window.parent !== window) {
-          window.parent.postMessage({ type:'nova3d-viewer-fullscreen', action:'exit' }, '*');
+          window.parent.postMessage({ type:'nova3d-viewer-fullscreen', action:'exit', viewerId }, '*');
         }
         return;
       }
       saveEditorState();
       setViewportMode(true);
       if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ type:'nova3d-viewer-fullscreen', action:'enter' }, '*');
+        window.parent.postMessage({ type:'nova3d-viewer-fullscreen', action:'enter', viewerId }, '*');
       }
     };
   }
@@ -2412,28 +2491,27 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  const restored = restoreEditorState();
   window.addEventListener('pagehide', saveEditorState);
   window.addEventListener('beforeunload', saveEditorState);
 
-  if (glbUrl && !restored) {
-    // URLSearchParams.get() already decodes percent-encoding. Decoding again can
-    // corrupt signed URLs whose query strings contain encoded characters.
-    const decoded = glbUrl;
-    // Wait until the container has real dimensions before loading —
-    // Flutter may not have completed iframe layout at DOMContentLoaded time.
-    if (container.clientWidth > 0 && container.clientHeight > 0) {
-      loadGLB(decoded);
-    } else {
-      const ro = new ResizeObserver((_, obs) => {
-        if (container.clientWidth > 0 && container.clientHeight > 0) {
-          obs.disconnect();
-          loadGLB(decoded);
-        }
-      });
-      ro.observe(container);
+  // restoreEditorState is async (IndexedDB); only load from the URL param when
+  // no saved state exists for this model.
+  restoreEditorState().then(restored => {
+    if (glbUrl && !restored) {
+      const decoded = glbUrl;
+      if (container.clientWidth > 0 && container.clientHeight > 0) {
+        loadGLB(decoded);
+      } else {
+        const ro = new ResizeObserver((_, obs) => {
+          if (container.clientWidth > 0 && container.clientHeight > 0) {
+            obs.disconnect();
+            loadGLB(decoded);
+          }
+        });
+        ro.observe(container);
+      }
     }
-  }
+  });
 });
 </script>
 </body>
