@@ -39,8 +39,9 @@ class MessageBubble extends StatelessWidget {
                   SizedBox(
                     height: 400,
                     child: GlbViewer(
-                      key: ValueKey(message.modelUrl),
+                      key: ValueKey(message.id),
                       src: message.modelUrl!,
+                      codeArtifact: message.codeArtifact,
                     ),
                   ),
                 ],

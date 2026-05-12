@@ -81,8 +81,10 @@ body.full-ui .viewport-action { left:12px; }
   font-family:inherit; white-space:nowrap;
 }
 #tbAutoRotate { min-width:154px; }
+.vp-btn.icon-btn { min-width:44px; width:44px; padding:8px 0; font-size:13px; letter-spacing:0; }
 .vp-btn:hover { color:#fff; background:#252525; border-color:#333; }
 .vp-btn.active { color:#000; background:linear-gradient(135deg,#fff,#d0d0d0); border-color:rgba(255,255,255,.4); box-shadow:0 0 10px rgba(255,255,255,.1); }
+.vp-btn:disabled { opacity:.35; cursor:not-allowed; color:#666; background:transparent; }
 .vp-btn kbd { font-size:9px; color:#555; margin-left:6px; font-family:inherit; font-weight:600; }
 
 /* ── Background swatches ── */
@@ -172,6 +174,19 @@ body.full-ui .viewport-action { left:12px; }
 }
 .mat-btn:hover { border-color:rgba(255,255,255,.1); color:#fff; background:linear-gradient(180deg,rgba(42,42,42,.9),rgba(32,32,32,.95)); }
 .mat-btn .swatch { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px; vertical-align:middle; border:1px solid rgba(255,255,255,.15); }
+.edit-input {
+  width:100%; min-height:86px; resize:vertical; padding:10px 12px;
+  background:#1e1e1e; border:1px solid #2a2a2a; border-radius:6px;
+  color:#e0e0e0; font-size:12px; line-height:1.45; font-family:inherit;
+}
+.edit-input:focus { border-color:#555; outline:none; }
+.edit-status {
+  display:none; margin-top:8px; padding:8px 10px; border-radius:6px;
+  border:1px solid rgba(255,255,255,.08); background:#171717;
+  color:#aaa; font-size:11px; line-height:1.35;
+}
+.edit-status.active { display:block; }
+.edit-status.error { color:#fca5a5; border-color:rgba(248,113,113,.4); background:rgba(248,113,113,.08); }
 
 /* ── Stats bar ── */
 .stats {
@@ -219,6 +234,23 @@ body.full-ui .viewport-action { left:12px; }
 .mesh-list { flex:1; overflow-y:auto; padding:8px; scroll-behavior:smooth; }
 .mesh-list::-webkit-scrollbar { width:3px; }
 .mesh-list::-webkit-scrollbar-thumb { background:#333; border-radius:4px; }
+.history-panel {
+  border-top:1px solid #2a2a2a; padding:10px 12px;
+  max-height:180px; overflow-y:auto; background:rgba(10,10,10,.28);
+}
+.history-panel h3 {
+  font-size:10px; color:#777; letter-spacing:1.6px; text-transform:uppercase;
+  margin-bottom:8px;
+}
+.history-list { display:flex; flex-direction:column; gap:4px; }
+.history-item {
+  width:100%; text-align:left; padding:7px 9px; border:1px solid #252525;
+  border-radius:6px; background:#181818; color:#858585; cursor:pointer;
+  font-size:10px; line-height:1.25;
+}
+.history-item:hover { color:#e5e5e5; border-color:#3a3a3a; }
+.history-item.active { color:#fff; border-color:rgba(102,178,255,.55); background:rgba(37,77,122,.35); }
+.history-item small { display:block; margin-top:2px; color:#626262; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .mesh-item {
   padding:9px 12px; margin-bottom:2px; background:transparent; border:1px solid transparent;
   border-radius:4px; cursor:pointer; transition:all .15s;
@@ -374,6 +406,9 @@ body.full-ui .selection-toolbar.has-selection { display:block; }
       <button class="vp-btn" id="tbMove">Move<kbd>G</kbd></button>
       <button class="vp-btn" id="tbRotate">Rotate<kbd>R</kbd></button>
       <button class="vp-btn" id="tbScale">Scale<kbd>S</kbd></button>
+      <button class="vp-btn icon-btn" id="tbUndo" title="Undo" onclick="undoEdit()">↶</button>
+      <button class="vp-btn icon-btn" id="tbRedo" title="Redo" onclick="redoEdit()">↷</button>
+      <button class="vp-btn icon-btn" id="tbDownload" title="Download GLB" onclick="downloadCurrentGLB()">⬇</button>
       <button class="vp-btn" id="tbAutoRotate" onclick="toggleAutoRotate()">Auto-rotate: ON</button>
     </div>
 
@@ -389,6 +424,7 @@ body.full-ui .selection-toolbar.has-selection { display:block; }
       <button class="et-btn" data-flyout="flyDisplay"><span>👁</span><span class="et-label">Display</span><div class="et-tip">Display</div></button>
       <button class="et-btn" data-flyout="flySculpt"><span>✏</span><span class="et-label">Sculpt</span><div class="et-tip">Sculpt</div></button>
       <button class="et-btn" data-flyout="flySnap"><span>⊟</span><span class="et-label">Snap</span><div class="et-tip">Snap &amp; Pivot</div></button>
+      <button class="et-btn" data-flyout="flyAiEdit"><span>AI</span><span class="et-label">Edit</span><div class="et-tip">AI Edit</div></button>
     </div>
 
     <!-- Transform flyout -->
@@ -555,6 +591,19 @@ body.full-ui .selection-toolbar.has-selection { display:block; }
       <button class="fo-btn" id="pivotWorld" onclick="setPivotMode('world')">World Origin</button>
     </div>
 
+    <!-- AI edit flyout -->
+    <div class="flyout" id="flyAiEdit" style="top:392px">
+      <h3>AI Edit</h3>
+      <h4>Regenerate Selected Part</h4>
+      <textarea class="edit-input" id="regenPrompt" placeholder="Describe how the selected part should change..."></textarea>
+      <button class="fo-btn" id="regenBtn" onclick="requestRegeneratePart()" style="border-color:#fff;color:#fff;margin-top:6px">Regenerate Selected Part</button>
+      <div class="fo-sep"></div>
+      <h4>Add To Part</h4>
+      <textarea class="edit-input" id="addPartPrompt" placeholder="Describe the new part to add..."></textarea>
+      <button class="fo-btn" id="addPartBtn" onclick="requestAddPart()" style="border-color:#fff;color:#fff;margin-top:6px">Add To Part</button>
+      <div class="edit-status" id="aiEditStatus"></div>
+    </div>
+
     <!-- Loading overlay -->
     <div class="loading-overlay" id="loadingOverlay">
       <div class="loading-bar-track"><div class="loading-bar-fill" id="loadingBarFill"></div></div>
@@ -579,6 +628,12 @@ body.full-ui .selection-toolbar.has-selection { display:block; }
     </div>
     <div class="mesh-list" id="meshList">
       <div style="text-align:center;color:#444;font-size:10px;padding:20px">Load a model to see parts</div>
+    </div>
+    <div class="history-panel">
+      <h3>Edit History</h3>
+      <div class="history-list" id="historyList">
+        <button class="history-item active" type="button">Initial model</button>
+      </div>
     </div>
     <div class="selection-toolbar" id="selectionActions" aria-live="polite">
       <div class="selection-summary">
@@ -622,6 +677,7 @@ import * as THREE from 'three';
 import { OrbitControls }    from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { GLTFLoader }        from 'three/addons/loaders/GLTFLoader.js';
+import { GLTFExporter }      from 'three/addons/exporters/GLTFExporter.js';
 import { RGBELoader }        from 'three/addons/loaders/RGBELoader.js';
 import { mergeGeometries }   from 'three/addons/utils/BufferGeometryUtils.js';
 
@@ -814,7 +870,17 @@ let boxHelpers   = [];
 let normalHelpers= [];
 
 const undoHistory = [];
+const redoHistory = [];
 const MAX_UNDO    = 30;
+let currentCodeArtifact = null;
+let currentModelUrl = null;
+let activeEditRequestId = null;
+let viewerId = 'standalone-viewer';
+let stateKey = 'standalone-viewer';
+
+function editorStorageKey() {
+  return `nova3d-viewer-state:${stateKey || viewerId}`;
+}
 
 // ── Realistic material creators ───────────────────────────────────────────────
 function makeGold() {
@@ -935,6 +1001,7 @@ function init() {
   setupFlyouts();
   setupSculpting();
   setupViewportMode();
+  syncHistoryUi();
 
   // ResizeObserver handles both the initial iframe sizing by Flutter
   // (which fires before window.resize) and all subsequent resizes.
@@ -988,12 +1055,13 @@ function buildProceduralEnv() {
 }
 
 // ── GLB loading ───────────────────────────────────────────────────────────────
-function loadGLB(url) {
+function loadGLB(url, options = {}) {
   showLoading();
   new GLTFLoader().load(
     url,
     gltf => {
       clearModel();
+      currentModelUrl = url;
       const model = gltf.scene;
       const box  = new THREE.Box3().setFromObject(model);
       const ctr  = box.getCenter(new THREE.Vector3());
@@ -1012,6 +1080,10 @@ function loadGLB(url) {
       frameCameraToModel(modelGroup);
       hideLoading();
       const el = document.getElementById('statsBar'); if(el) el.style.display='flex';
+      if (options.recordHistory !== false && !undoHistory.length && !redoHistory.length) {
+        syncHistoryUi();
+      }
+      saveEditorState();
       renderer.render(scene, camera);
     },
     prog => { if (prog.total>0) setLoadingProgress(Math.round(prog.loaded/prog.total*100)); },
@@ -1245,13 +1317,15 @@ function setupMeshButtons() {
   document.getElementById('selectInvert').onclick = ()=>{ lastSelectionAction='invert'; const n=new Set(); loadedMeshes.forEach((_,i)=>{ if(!selectedMeshIndices.has(i)) n.add(i); }); selectedMeshIndices=n; lastSelectedMeshIndex=selectedMeshIndices.size?Math.min(...selectedMeshIndices):null; updateMeshList({ scrollToSelection:true }); updateHighlights(); };
   document.getElementById('meshSearch').oninput   = ()=>updateMeshList();
   document.getElementById('actVisibility').onclick = ()=>{
+    if (!selectedMeshIndices.size) return;
+    pushUndoSnapshot('visibility');
     lastSelectionAction='visibility';
     const shouldShow = [...selectedMeshIndices].some(i => loadedMeshes[i] && !loadedMeshes[i].mesh.visible);
     selectedMeshIndices.forEach(i=>{ loadedMeshes[i].mesh.visible=shouldShow; });
     updateMeshList();
   };
-  document.getElementById('actShowAll').onclick = ()=>{ lastSelectionAction='show-all'; loadedMeshes.forEach(m=>{ m.mesh.visible=true; }); updateMeshList(); };
-  document.getElementById('actIsolate').onclick = ()=>{ lastSelectionAction='isolate'; loadedMeshes.forEach((m,i)=>{ m.mesh.visible=selectedMeshIndices.has(i); }); updateMeshList(); };
+  document.getElementById('actShowAll').onclick = ()=>{ pushUndoSnapshot('show-all'); lastSelectionAction='show-all'; loadedMeshes.forEach(m=>{ m.mesh.visible=true; }); updateMeshList(); };
+  document.getElementById('actIsolate').onclick = ()=>{ if (!selectedMeshIndices.size) return; pushUndoSnapshot('isolate'); lastSelectionAction='isolate'; loadedMeshes.forEach((m,i)=>{ m.mesh.visible=selectedMeshIndices.has(i); }); updateMeshList(); };
 }
 
 // ── Keyboard shortcuts ────────────────────────────────────────────────────────
@@ -1260,6 +1334,8 @@ function setupKeyboard() {
     if (e.target?.tagName==='INPUT' || e.target?.tagName==='TEXTAREA') return;
     if (!isFullUi() && e.key !== 'Escape') return;
     const key = e.key.toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && key === 'z') { e.preventDefault(); e.shiftKey ? popRedo() : popUndo(); return; }
+    if ((e.ctrlKey || e.metaKey) && key === 'y') { e.preventDefault(); popRedo(); return; }
     if (key==='d' && e.shiftKey) { e.preventDefault(); window.duplicateSelection(); return; }
     switch(key) {
       case 'g': setMode('translate'); break;
@@ -1269,49 +1345,281 @@ function setupKeyboard() {
         setMode('orbit');
         if (sculptMode) window.toggleSculptMode();
         closeFlyouts(); break;
-      case 'h': selectedMeshIndices.forEach(i=>{ loadedMeshes[i].mesh.visible=false; }); updateMeshList(); break;
+      case 'h': if (selectedMeshIndices.size) { pushUndoSnapshot('hide'); selectedMeshIndices.forEach(i=>{ loadedMeshes[i].mesh.visible=false; }); updateMeshList(); } break;
       case 'x': case 'delete': window.deleteSelected(); break;
       case 'u': if (e.shiftKey) popUndo(); break;
     }
   });
 }
 
-// ── Undo ──────────────────────────────────────────────────────────────────────
-function pushUndoSnapshot(action) {
-  const snapshot = { action, meshes: loadedMeshes.map(entry => {
-    const m = entry.originalMaterial;
+// ── Edit history ──────────────────────────────────────────────────────────────
+function captureSnapshot(action) {
+  if (!loadedMeshes.length) return null;
+  return { action, codeArtifact: currentCodeArtifact, modelUrl: currentModelUrl, meshes: loadedMeshes.map(entry => {
+    const material = entry.originalMaterial?.clone?.() || entry.mesh.material?.clone?.() || new THREE.MeshStandardMaterial({ color:0xaaaaaa });
+    entry.mesh.updateMatrixWorld(true);
+    modelGroup.updateMatrixWorld(true);
+    const geometry = entry.mesh.geometry.clone();
+    const toModelGroup = new THREE.Matrix4().copy(modelGroup.matrixWorld).invert().multiply(entry.mesh.matrixWorld);
+    geometry.applyMatrix4(toModelGroup);
     return {
-      name:entry.name, geometry:entry.mesh.geometry.clone(),
-      position:entry.mesh.position.clone(), rotation:entry.mesh.rotation.clone(),
-      scale:entry.mesh.scale.clone(), visible:entry.mesh.visible,
-      matParams:{ color:m.color?m.color.getHex():0xaaaaaa, metalness:m.metalness??0, roughness:m.roughness??0.8,
-        envMapIntensity:m.envMapIntensity??1, clearcoat:m.clearcoat??0, clearcoatRoughness:m.clearcoatRoughness??0,
-        transmission:m.transmission??0, ior:m.ior??1.5, thickness:m.thickness??0,
-        transparent:m.transparent??false, side:m.side??THREE.FrontSide }
+      name:entry.name, geometry,
+      material,
+      position:new THREE.Vector3(), rotation:new THREE.Euler(),
+      scale:new THREE.Vector3(1,1,1), visible:entry.mesh.visible,
+      matParams:serializeMaterial(material)
     };
   })};
-  undoHistory.push(snapshot);
-  if (undoHistory.length>MAX_UNDO) { const old=undoHistory.shift(); old.meshes.forEach(m=>m.geometry.dispose()); }
 }
 
-function popUndo() {
-  if (!undoHistory.length) return;
-  const snap = undoHistory.pop();
+function disposeSnapshot(snapshot) {
+  snapshot?.meshes?.forEach(m => { m.geometry?.dispose?.(); m.material?.dispose?.(); });
+}
+
+function serializeMaterial(mat) {
+  return {
+    type: mat?.type || 'MeshStandardMaterial',
+    color: mat?.color?.getHex?.() ?? 0xaaaaaa,
+    emissive: mat?.emissive?.getHex?.() ?? 0x000000,
+    metalness: mat?.metalness ?? 0,
+    roughness: mat?.roughness ?? 0.8,
+    envMapIntensity: mat?.envMapIntensity ?? 1,
+    clearcoat: mat?.clearcoat ?? 0,
+    clearcoatRoughness: mat?.clearcoatRoughness ?? 0,
+    transmission: mat?.transmission ?? 0,
+    ior: mat?.ior ?? 1.5,
+    thickness: mat?.thickness ?? 0,
+    transparent: mat?.transparent ?? false,
+    opacity: mat?.opacity ?? 1,
+    side: mat?.side ?? THREE.FrontSide,
+    wireframe: mat?.wireframe ?? false,
+    flatShading: mat?.flatShading ?? false,
+    depthWrite: mat?.depthWrite ?? true,
+    depthTest: mat?.depthTest ?? true,
+  };
+}
+
+function materialFromParams(p = {}) {
+  const ctor = p.type === 'MeshPhysicalMaterial' ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;
+  const mat = new ctor({
+    color:p.color??0xaaaaaa, emissive:p.emissive??0x000000,
+    metalness:p.metalness??0, roughness:p.roughness??0.8,
+    envMap, envMapIntensity:p.envMapIntensity??1,
+    transparent:p.transparent??false, opacity:p.opacity??1,
+    side:p.side??THREE.FrontSide, wireframe:p.wireframe??false,
+    flatShading:p.flatShading??false, depthWrite:p.depthWrite??true,
+    depthTest:p.depthTest??true
+  });
+  if ('clearcoat' in mat) mat.clearcoat = p.clearcoat??0;
+  if ('clearcoatRoughness' in mat) mat.clearcoatRoughness = p.clearcoatRoughness??0;
+  if ('transmission' in mat) mat.transmission = p.transmission??0;
+  if ('ior' in mat) mat.ior = p.ior??1.5;
+  if ('thickness' in mat) mat.thickness = p.thickness??0;
+  mat.needsUpdate = true;
+  return mat;
+}
+
+function serializeGeometry(geometry) {
+  const pos = geometry.attributes.position;
+  if (!pos) return null;
+  return {
+    position:Array.from(pos.array),
+    normal:geometry.attributes.normal ? Array.from(geometry.attributes.normal.array) : null,
+    index:geometry.index ? Array.from(geometry.index.array) : null,
+  };
+}
+
+function geometryFromData(data) {
+  if (!data?.position) return null;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(data.position, 3));
+  if (data.normal) geometry.setAttribute('normal', new THREE.Float32BufferAttribute(data.normal, 3));
+  else geometry.computeVertexNormals();
+  if (data.index) geometry.setIndex(data.index);
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function snapshotToData(snapshot) {
+  if (!snapshot) return null;
+  return {
+    action:snapshot.action,
+    codeArtifact:snapshot.codeArtifact,
+    modelUrl:snapshot.modelUrl,
+    meshes:snapshot.meshes.map(mesh => ({
+      name:mesh.name,
+      visible:mesh.visible,
+      geometry:serializeGeometry(mesh.geometry),
+      material:serializeMaterial(mesh.material || materialFromParams(mesh.matParams)),
+    })).filter(mesh => mesh.geometry),
+  };
+}
+
+function snapshotFromData(data) {
+  if (!data?.meshes?.length) return null;
+  return {
+    action:data.action,
+    codeArtifact:data.codeArtifact,
+    modelUrl:data.modelUrl,
+    meshes:data.meshes.map(mesh => ({
+      name:mesh.name,
+      visible:mesh.visible,
+      geometry:geometryFromData(mesh.geometry),
+      material:materialFromParams(mesh.material),
+      matParams:mesh.material,
+      position:new THREE.Vector3(),
+      rotation:new THREE.Euler(),
+      scale:new THREE.Vector3(1,1,1),
+    })).filter(mesh => mesh.geometry),
+  };
+}
+
+function saveEditorState() {
+  // Fullscreen now keeps the same iframe alive, so the authoritative edit
+  // state is the in-memory Three.js scene/history. Serializing large meshes
+  // into sessionStorage is slow and can exceed browser quota.
+}
+
+function restoreEditorState() {
+  return false;
+}
+
+function pushUndoSnapshot(action) {
+  const snapshot = captureSnapshot(action);
+  if (!snapshot || !snapshot.meshes.length) return;
+  undoHistory.push(snapshot);
+  redoHistory.splice(0).forEach(disposeSnapshot);
+  if (undoHistory.length>MAX_UNDO) disposeSnapshot(undoHistory.shift());
+  syncHistoryUi();
+  saveEditorState();
+}
+
+function restoreSnapshot(snap, options = {}) {
+  if (!snap || !snap.meshes?.length) return false;
+  const nextGroup = new THREE.Group();
+  const nextMeshes = [];
+
+  try {
+    snap.meshes.forEach(s=>{
+      if (!s?.geometry) throw new Error('Snapshot mesh is missing geometry.');
+      const mat = s.material?.clone?.() || materialFromParams(s.matParams);
+      const geometry = s.geometry.clone();
+      const mesh = new THREE.Mesh(geometry, mat);
+      mesh.name=s.name || `Mesh_${nextMeshes.length}`;
+      mesh.position.copy(s.position || new THREE.Vector3());
+      mesh.rotation.copy(s.rotation || new THREE.Euler());
+      mesh.scale.copy(s.scale || new THREE.Vector3(1,1,1));
+      mesh.visible=s.visible !== false;
+      nextGroup.add(mesh);
+      nextMeshes.push({ mesh, originalMaterial:mat, name:mesh.name, geometry:geometry.clone() });
+    });
+  } catch (err) {
+    console.error('Undo restore failed before model swap:', err);
+    nextMeshes.forEach(e=>{ e.geometry.dispose(); e.mesh.geometry.dispose(); if(e.mesh.material) e.mesh.material.dispose(); });
+    return false;
+  }
+
   detachProxy(); transformControls.detach();
   boxHelpers.forEach(h=>scene.remove(h)); boxHelpers=[];
   normalHelpers.forEach(h=>scene.remove(h)); normalHelpers=[];
   loadedMeshes.forEach(e=>{ e.mesh.removeFromParent(); e.mesh.geometry.dispose(); if(e.mesh.material&&e.mesh.material!==highlightMat) e.mesh.material.dispose(); });
-  loadedMeshes=[]; selectedMeshIndices.clear();
-  snap.meshes.forEach(s=>{
-    const p=s.matParams;
-    const mat = new THREE.MeshPhysicalMaterial({ color:p.color, metalness:p.metalness, roughness:p.roughness, envMap, envMapIntensity:p.envMapIntensity, clearcoat:p.clearcoat, clearcoatRoughness:p.clearcoatRoughness, transmission:p.transmission, ior:p.ior, thickness:p.thickness, transparent:p.transparent, side:p.side });
-    const mesh = new THREE.Mesh(s.geometry, mat);
-    mesh.name=s.name; mesh.position.copy(s.position); mesh.rotation.copy(s.rotation); mesh.scale.copy(s.scale); mesh.visible=s.visible;
-    modelGroup.add(mesh);
-    loadedMeshes.push({ mesh, originalMaterial:mat, name:s.name, geometry:s.geometry.clone() });
-  });
+  while (modelGroup.children.length) modelGroup.remove(modelGroup.children[0]);
+  nextGroup.children.slice().forEach(mesh => modelGroup.add(mesh));
+  loadedMeshes = nextMeshes;
+  selectedMeshIndices.clear();
+  currentCodeArtifact = snap.codeArtifact ?? null;
+  currentModelUrl = snap.modelUrl ?? null;
   updateMeshList(); updateMeshStats(); updateHighlights();
+  syncHistoryUi();
+  if (!options.skipPersist) saveEditorState();
+  return true;
 }
+
+function popUndo() {
+  if (!undoHistory.length) return;
+  const current = captureSnapshot('redo-point');
+  const snap = undoHistory.pop();
+  if (restoreSnapshot(snap)) {
+    if (current) redoHistory.push(current);
+  } else {
+    undoHistory.push(snap);
+  }
+  syncHistoryUi();
+  saveEditorState();
+}
+
+function popRedo() {
+  if (!redoHistory.length) return;
+  const current = captureSnapshot('undo-point');
+  const snap = redoHistory.pop();
+  if (restoreSnapshot(snap)) {
+    if (current) undoHistory.push(current);
+  } else {
+    redoHistory.push(snap);
+  }
+  syncHistoryUi();
+  saveEditorState();
+}
+
+function syncHistoryUi() {
+  const undoBtn = document.getElementById('tbUndo');
+  const redoBtn = document.getElementById('tbRedo');
+  if (undoBtn) undoBtn.disabled = undoHistory.length === 0;
+  if (redoBtn) redoBtn.disabled = redoHistory.length === 0;
+
+  const list = document.getElementById('historyList');
+  if (!list) return;
+  const entries = ['Initial model', ...undoHistory.map(s => formatActionLabel(s.action))];
+  const activeIndex = undoHistory.length;
+  list.innerHTML = entries.map((label, idx) =>
+    `<button class="history-item${idx===activeIndex?' active':''}" type="button" data-history-idx="${idx}">
+      ${escapeHtml(label)}
+      <small>${idx===activeIndex?'Current state':'Undo stack'}</small>
+    </button>`
+  ).join('');
+  list.querySelectorAll('[data-history-idx]').forEach(btn => {
+    btn.onclick = () => {
+      const target = parseInt(btn.dataset.historyIdx, 10);
+      while (undoHistory.length > target) popUndo();
+      while (undoHistory.length < target && redoHistory.length) popRedo();
+    };
+  });
+}
+
+function formatActionLabel(action) {
+  return String(action || 'edit').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+
+window.undoEdit = popUndo;
+window.redoEdit = popRedo;
+
+window.downloadCurrentGLB = function() {
+  if (!modelGroup || !modelGroup.children.length) return;
+  const exporter = new GLTFExporter();
+  exporter.parse(
+    modelGroup,
+    result => {
+      const blob = result instanceof ArrayBuffer
+        ? new Blob([result], { type:'model/gltf-binary' })
+        : new Blob([JSON.stringify(result)], { type:'model/gltf+json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `nova3d-edit-${Date.now()}.glb`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+    error => showEditStatus(`Download failed: ${error?.message || error}`, true),
+    { binary:true, onlyVisible:false }
+  );
+};
 
 // ── Mesh operations ───────────────────────────────────────────────────────────
 window.deleteSelected = function() {
@@ -1421,6 +1729,7 @@ window.centerOrigin = function() {
 
 window.recalcNormals = function() {
   if (!selectedMeshIndices.size) return;
+  pushUndoSnapshot('recalc-normals');
   selectedMeshIndices.forEach(i=>{ loadedMeshes[i].mesh.geometry.computeVertexNormals(); });
 };
 
@@ -1580,18 +1889,21 @@ window.applyCustomMaterial = function() {
 
 // ── Display modes ─────────────────────────────────────────────────────────────
 window.toggleWireframe = function() {
+  pushUndoSnapshot('wireframe');
   displayState.wireframe=!displayState.wireframe;
   const tgts=selectedMeshIndices.size?[...selectedMeshIndices]:loadedMeshes.map((_,i)=>i);
   tgts.forEach(i=>{ loadedMeshes[i].originalMaterial.wireframe=displayState.wireframe; loadedMeshes[i].originalMaterial.needsUpdate=true; });
   document.getElementById('togWireframe').classList.toggle('active-tool',displayState.wireframe);
 };
 window.toggleFlatShading = function() {
+  pushUndoSnapshot('flat-shading');
   displayState.flatShading=!displayState.flatShading;
   const tgts=selectedMeshIndices.size?[...selectedMeshIndices]:loadedMeshes.map((_,i)=>i);
   tgts.forEach(i=>{ loadedMeshes[i].originalMaterial.flatShading=displayState.flatShading; loadedMeshes[i].originalMaterial.needsUpdate=true; });
   document.getElementById('togFlatShade').classList.toggle('active-tool',displayState.flatShading);
 };
 window.toggleXray = function() {
+  pushUndoSnapshot('xray');
   displayState.xray=!displayState.xray;
   const tgts=selectedMeshIndices.size?[...selectedMeshIndices]:loadedMeshes.map((_,i)=>i);
   tgts.forEach(i=>{ const m=loadedMeshes[i].originalMaterial; m.transparent=displayState.xray; m.opacity=displayState.xray?.3:1; m.depthWrite=!displayState.xray; m.needsUpdate=true; });
@@ -1724,6 +2036,10 @@ function isFullUi() {
   return document.body.classList.contains('full-ui');
 }
 
+function _fsStorageKey() {
+  return 'nova3d-fs:' + (stateKey || viewerId);
+}
+
 function setViewportMode(full) {
   document.body.classList.toggle('full-ui', full);
   document.body.classList.toggle('compact', !full);
@@ -1739,8 +2055,23 @@ function setViewportMode(full) {
     updateMeshList();
     closeFlyouts();
   }
+  // Persist the mode so that if the browser reloads the iframe after a DOM
+  // move (a known Safari behaviour), it can restore the correct UI state.
+  try {
+    if (full) { sessionStorage.setItem(_fsStorageKey(), '1'); }
+    else       { sessionStorage.removeItem(_fsStorageKey()); }
+  } catch(_) {}
+  saveEditorState();
   onResize();
-  if (loadedMeshes.length) frameCameraToModel(modelGroup);
+  if (loadedMeshes.length) {
+    if (full) {
+      frameCameraToModel(modelGroup);
+    } else {
+      // Delay re-framing so the overlay can finish resizing to compact
+      // dimensions before we compute the camera distance.
+      requestAnimationFrame(() => { onResize(); frameCameraToModel(modelGroup); });
+    }
+  }
 }
 
 function setupViewportMode() {
@@ -1748,12 +2079,14 @@ function setupViewportMode() {
   if (btn) {
     btn.onclick = async () => {
       if (isFullUi()) {
+        saveEditorState();
         setViewportMode(false);
         if (window.parent && window.parent !== window) {
           window.parent.postMessage({ type:'nova3d-viewer-fullscreen', action:'exit' }, '*');
         }
         return;
       }
+      saveEditorState();
       setViewportMode(true);
       if (window.parent && window.parent !== window) {
         window.parent.postMessage({ type:'nova3d-viewer-fullscreen', action:'enter' }, '*');
@@ -1768,13 +2101,105 @@ function setupViewportMode() {
   });
 }
 
+// ── AI edit workflow bridge ──────────────────────────────────────────────────
+function selectedPartType() {
+  if (!selectedMeshIndices.size) return 'selected part';
+  const names = [...selectedMeshIndices]
+    .map(i => loadedMeshes[i]?.name)
+    .filter(Boolean)
+    .slice(0, 4);
+  return names.length ? names.join(', ') : 'selected part';
+}
+
+function setAiBusy(busy) {
+  activeEditRequestId = busy ? activeEditRequestId : null;
+  ['regenBtn','addPartBtn'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = busy;
+  });
+}
+
+function showEditStatus(message, isError = false) {
+  const el = document.getElementById('aiEditStatus');
+  if (!el) return;
+  el.textContent = message;
+  el.classList.add('active');
+  el.classList.toggle('error', isError);
+}
+
+function requestAiEdit(operation, description, partType = '') {
+  const clean = description.trim();
+  if (!clean) {
+    showEditStatus('Describe the edit first.', true);
+    return;
+  }
+  if (!currentCodeArtifact) {
+    showEditStatus('This model has no code artifact. Generate it again before AI editing.', true);
+    return;
+  }
+  if (activeEditRequestId) return;
+  activeEditRequestId = `edit-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  setAiBusy(true);
+  showEditStatus(operation === 'add_3d_part' ? 'Adding part...' : 'Regenerating selected part...');
+  window.parent?.postMessage({
+    type:'nova3d-edit-request',
+    viewerId,
+    requestId:activeEditRequestId,
+    operation,
+    description:clean,
+    partType,
+    codeArtifact:currentCodeArtifact,
+  }, '*');
+}
+
+window.requestRegeneratePart = function() {
+  requestAiEdit(
+    'regenerate_3d_part',
+    document.getElementById('regenPrompt')?.value || '',
+    selectedPartType()
+  );
+};
+
+window.requestAddPart = function() {
+  requestAiEdit('add_3d_part', document.getElementById('addPartPrompt')?.value || '');
+};
+
+window.addEventListener('message', event => {
+  const data = event.data || {};
+  if (data.type !== 'nova3d-edit-result') return;
+  if (data.requestId !== activeEditRequestId) return;
+  setAiBusy(false);
+  if (data.status !== 'completed') {
+    showEditStatus(data.message || 'Edit failed.', true);
+    return;
+  }
+  if (!data.modelUrl || !data.codeArtifact) {
+    showEditStatus('Edit finished but did not return a usable model artifact.', true);
+    return;
+  }
+  pushUndoSnapshot(data.operation || 'ai-edit');
+  currentCodeArtifact = data.codeArtifact;
+  showEditStatus('Edit complete.');
+  loadGLB(data.modelUrl, { recordHistory:false });
+});
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   init();
   buildBgSwatches();
 
   const params = new URLSearchParams(window.location.search);
-  setViewportMode(params.get('mode') === 'editor');
+  viewerId = params.get('viewerId') || viewerId;
+  stateKey = params.get('stateKey') || params.get('glb') || viewerId;
+  // Also check sessionStorage: if the iframe was reloaded by the browser
+  // while it was in the fullscreen overlay, restore editor mode automatically.
+  let startInEditor = params.get('mode') === 'editor';
+  try { startInEditor = startInEditor || sessionStorage.getItem(_fsStorageKey()) === '1'; } catch(_) {}
+  setViewportMode(startInEditor);
+  const artifactParam = params.get('codeArtifact');
+  if (artifactParam) {
+    try { currentCodeArtifact = JSON.parse(artifactParam); } catch(e) { currentCodeArtifact = null; }
+  }
 
   const glbUrl = params.get('glb');
   const autoR  = params.get('autoRotate');
@@ -1788,7 +2213,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  if (glbUrl) {
+  const restored = restoreEditorState();
+  window.addEventListener('pagehide', saveEditorState);
+  window.addEventListener('beforeunload', saveEditorState);
+
+  if (glbUrl && !restored) {
     // URLSearchParams.get() already decodes percent-encoding. Decoding again can
     // corrupt signed URLs whose query strings contain encoded characters.
     const decoded = glbUrl;

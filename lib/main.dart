@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:nova3d_frontend/core/router.dart';
 import 'package:nova3d_frontend/core/theme.dart';
 import 'package:web/web.dart' as web;
 
 void main() {
+  // Keep the local client self-contained. Remote font fetches can make a
+  // localhost build appear stuck when the browser cannot reach Google Fonts.
+  GoogleFonts.config.allowRuntimeFetching = false;
+
   // Use clean path-based URLs (/route) instead of hash-based (/#/route).
   // Without this, GoRouter reads the OAuth fragment (#access_token=...) as a
   // route path, fails to match it, and crashes with a RouteMatchList assertion.
@@ -21,8 +26,11 @@ void main() {
       '_nova3d_oauth',
       hash.startsWith('#') ? hash.substring(1) : hash,
     );
-    web.window.history.replaceState(null, '',
-        '${web.window.location.pathname}${web.window.location.search}');
+    web.window.history.replaceState(
+      null,
+      '',
+      '${web.window.location.pathname}${web.window.location.search}',
+    );
   }
 
   runApp(const ProviderScope(child: Nova3DApp()));

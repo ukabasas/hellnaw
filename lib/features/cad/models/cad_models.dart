@@ -83,6 +83,8 @@ class WorkflowStatus {
 
   static const _nodeLabels = {
     'sketch_to_3d_generator': 'Generating your 3D model...',
+    'regenerate_3d_part': 'Regenerating the selected part...',
+    'add_3d_part': 'Adding a new part...',
   };
 
   String get progressLabel {
@@ -117,6 +119,7 @@ class WorkflowStatus {
 
 class CadResult {
   final String? glbUrl;
+  final Map<String, dynamic>? codeArtifact;
   final bool failed;
   final String? errorMessage;
   final String? errorCategory;
@@ -125,6 +128,7 @@ class CadResult {
 
   const CadResult({
     this.glbUrl,
+    this.codeArtifact,
     required this.failed,
     this.errorMessage,
     this.errorCategory,
@@ -135,12 +139,14 @@ class CadResult {
   factory CadResult.fromJson(Map<String, dynamic> json) {
     final payload = _extractGeneratorPayload(json);
     final glbUrl = payload == null ? null : _extractGlbUrl(payload);
+    final codeArtifact = payload == null ? null : _extractCodeArtifact(payload);
     final failure = payload == null ? null : _extractFailure(payload);
     final errorMessage = failure?.message ?? _extractRootError(json);
     final failed = glbUrl == null && (_isFailed(json) || errorMessage != null);
 
     return CadResult(
       glbUrl: glbUrl,
+      codeArtifact: codeArtifact,
       failed: failed,
       errorMessage: errorMessage,
       errorCategory: failure?.category,
@@ -152,11 +158,17 @@ class CadResult {
   static Map<String, dynamic>? _extractGeneratorPayload(
     Map<String, dynamic> json,
   ) {
-    final generator = json['sketch_to_3d_generator'];
-    if (generator is! List || generator.isEmpty) return null;
-    final first = generator.first;
-    if (first is! Map) return null;
-    return _asStringMap(first);
+    for (final key in [
+      'sketch_to_3d_generator',
+      'regenerate_3d_part',
+      'add_3d_part',
+    ]) {
+      final node = json[key];
+      if (node is! List || node.isEmpty) continue;
+      final first = node.first;
+      if (first is Map) return _asStringMap(first);
+    }
+    return null;
   }
 
   static String? _extractGlbUrl(Map<String, dynamic> payload) {
@@ -171,6 +183,21 @@ class CadResult {
         final url = artifact['url'] as String?;
         if (url != null && url.isNotEmpty) return url;
       }
+    }
+    return null;
+  }
+
+  static Map<String, dynamic>? _extractCodeArtifact(
+    Map<String, dynamic> payload,
+  ) {
+    final unwrapped = _unwrapResult(payload);
+    for (final artifactKey in [
+      'code_artifact',
+      'source_code_artifact',
+      'input_code_artifact',
+    ]) {
+      final artifact = _asStringMap(unwrapped[artifactKey]);
+      if (artifact != null) return artifact;
     }
     return null;
   }

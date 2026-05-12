@@ -110,15 +110,110 @@
   <script>
     var nova3dFullscreenFrame = null;
     var nova3dPreviousBodyOverflow = '';
+    var nova3dCompactRAF = null;
+
+    function nova3dStopCompactTracking() {
+      if (nova3dCompactRAF) { cancelAnimationFrame(nova3dCompactRAF); nova3dCompactRAF = null; }
+    }
+
+    // Keep the overlay aligned with the slot while in compact mode.
+    // We use the SAVED rect (captured before the iframe was ever moved) as the
+    // reliable source of truth, because Flutter hides the empty slot element
+    // after the iframe leaves it (returning 0×0 from getBoundingClientRect).
+    // The slot is still tried first — if Flutter ever keeps it live (e.g. a
+    // future engine version), that gives us real-time scroll tracking.
+    function nova3dStartCompactTracking(frame) {
+      nova3dStopCompactTracking();
+      function tick() {
+        var ol = document.getElementById('nova3d-viewer-overlay');
+        if (!ol) return;
+        var rect = null;
+        var slot = frame.__nova3dSlot;
+        if (slot) {
+          var sr = slot.getBoundingClientRect();
+          if (sr.width > 0 && sr.height > 0) {
+            rect = { top: sr.top, left: sr.left, width: sr.width, height: sr.height };
+          }
+        }
+        if (!rect) rect = frame.__nova3dCompactRect;
+        if (rect) {
+          ol.style.top    = rect.top    + 'px';
+          ol.style.left   = rect.left   + 'px';
+          ol.style.width  = rect.width  + 'px';
+          ol.style.height = rect.height + 'px';
+        }
+        nova3dCompactRAF = requestAnimationFrame(tick);
+      }
+      nova3dCompactRAF = requestAnimationFrame(tick);
+    }
+
+    function nova3dApplyCompactOverlay(frame) {
+      var ol = document.getElementById('nova3d-viewer-overlay');
+      if (!ol) return;
+      // Clear all four inset properties so only top/left/width/height are used.
+      ol.style.right = '';
+      ol.style.bottom = '';
+      var rect = frame.__nova3dCompactRect;
+      if (rect) {
+        ol.style.top    = rect.top    + 'px';
+        ol.style.left   = rect.left   + 'px';
+        ol.style.width  = rect.width  + 'px';
+        ol.style.height = rect.height + 'px';
+      }
+    }
+
+    function nova3dSetOverlayFullscreen(ol) {
+      ol.style.top = '0'; ol.style.left  = '0';
+      ol.style.right = '0'; ol.style.bottom = '0';
+      ol.style.width = '100vw'; ol.style.height = '100vh';
+    }
+    window.__nova3dEditHandlers = window.__nova3dEditHandlers || {};
+    window.nova3dRegisterEditHandler = function (viewerId, handler) {
+      if (!viewerId || typeof handler !== 'function') return;
+      window.__nova3dEditHandlers[String(viewerId)] = handler;
+    };
+    window.nova3dUnregisterEditHandler = function (viewerId) {
+      if (viewerId) delete window.__nova3dEditHandlers[String(viewerId)];
+    };
 
     window.addEventListener('message', function (event) {
       var data = event.data || {};
-      if (data.type !== 'nova3d-viewer-fullscreen') return;
 
-      var frames = Array.prototype.slice.call(document.querySelectorAll('iframe'));
-      var frame = frames.find(function (candidate) {
-        return candidate.contentWindow === event.source;
-      });
+      function collectIframes(root, out) {
+        if (!root) return out;
+        root.querySelectorAll && root.querySelectorAll('iframe').forEach(function (iframe) {
+          out.push(iframe);
+        });
+        root.querySelectorAll && root.querySelectorAll('*').forEach(function (el) {
+          if (el.shadowRoot) collectIframes(el.shadowRoot, out);
+        });
+        return out;
+      }
+
+      function findNova3dFrame(source) {
+        return collectIframes(document, []).find(function (candidate) {
+          return candidate.contentWindow === source;
+        });
+      }
+
+      if (data.type === 'nova3d-edit-request') {
+        var editFrame = findNova3dFrame(event.source);
+        if (!editFrame) return;
+        var handler = window.__nova3dEditHandlers && window.__nova3dEditHandlers[String(data.viewerId || '')];
+        if (typeof handler === 'function') {
+          handler(
+            String(data.requestId || ''),
+            String(data.operation || ''),
+            String(data.description || ''),
+            String(data.partType || ''),
+            JSON.stringify(data.codeArtifact || null)
+          );
+        }
+        return;
+      }
+
+      if (data.type !== 'nova3d-viewer-fullscreen') return;
+      var frame = findNova3dFrame(event.source);
       if (!frame) return;
 
       function notify(full) {
@@ -138,108 +233,115 @@
         });
       }
 
-      function setViewerUrlMode(mode) {
-        try {
-          var url = new URL(frame.getAttribute('src') || frame.src, window.location.href);
-          url.searchParams.set('mode', mode);
-          var next = url.pathname + url.search + url.hash;
-          if (frame.getAttribute('src') !== next) {
-            frame.setAttribute('src', next);
-          }
-        } catch (_) {}
-      }
-
       if (data.action === 'enter') {
-        if (!frame.dataset.nova3dFullscreen) {
-          frame.dataset.nova3dFullscreen = 'true';
-          frame.__nova3dParent = frame.parentNode;
-          frame.__nova3dNextSibling = frame.nextSibling;
-          frame.dataset.nova3dStylePosition = frame.style.position || '';
-          frame.dataset.nova3dStyleInset = frame.style.inset || '';
-          frame.dataset.nova3dStyleWidth = frame.style.width || '';
-          frame.dataset.nova3dStyleHeight = frame.style.height || '';
-          frame.dataset.nova3dStyleZIndex = frame.style.zIndex || '';
-          frame.dataset.nova3dStyleBorderRadius = frame.style.borderRadius || '';
-          nova3dPreviousBodyOverflow = document.body.style.overflow || '';
-        }
+        nova3dStopCompactTracking();
 
-        var overlay = document.getElementById('nova3d-viewer-overlay');
-        if (!overlay) {
-          overlay = document.createElement('div');
+        if (!frame.dataset.nova3dFullscreen) {
+          // ── First enter: snapshot the iframe's current viewport rect BEFORE
+          // moving it.  Flutter hides the empty slot after the iframe leaves,
+          // so getBoundingClientRect() on the slot returns 0×0.  We use this
+          // saved rect as the authoritative compact position.
+          var snapR = frame.getBoundingClientRect();
+          frame.__nova3dCompactRect = {
+            top: snapR.top, left: snapR.left,
+            width: snapR.width, height: snapR.height,
+          };
+
+          frame.dataset.nova3dFullscreen = 'true';
+          frame.__nova3dSlot = frame.parentNode;
+          nova3dPreviousBodyOverflow = document.body.style.overflow || '';
+
+          var overlay = document.createElement('div');
           overlay.id = 'nova3d-viewer-overlay';
+          overlay.style.cssText = [
+            'position:fixed',
+            'z-index:2147483647',
+            'background:#0d0d0d',
+            'display:flex',
+            'align-items:stretch',
+          ].join(';');
           document.body.appendChild(overlay);
+
+          // Move the iframe.  Per the HTML spec, adopting within the same
+          // document preserves the JS context.  The iframe is NEVER moved back
+          // — re-inserting into Flutter's slot triggers a platform-view reload.
+          overlay.appendChild(frame);
+          frame.style.position    = 'relative';
+          frame.style.inset       = 'auto';
+          frame.style.width       = '100%';
+          frame.style.height      = '100%';
+          frame.style.borderRadius = '0';
         }
 
         nova3dFullscreenFrame = frame;
         frame.dataset.nova3dFullscreenState = 'full';
-        setViewerUrlMode('editor');
         document.body.style.overflow = 'hidden';
-        overlay.style.position = 'fixed';
-        overlay.style.inset = '0';
-        overlay.style.width = '100vw';
-        overlay.style.height = '100vh';
-        overlay.style.zIndex = '2147483647';
-        overlay.style.background = '#0d0d0d';
-        overlay.style.overflow = 'hidden';
-        overlay.appendChild(frame);
-        frame.style.position = 'absolute';
-        frame.style.inset = '0';
-        frame.style.width = '100%';
-        frame.style.height = '100%';
-        frame.style.zIndex = '1';
-        frame.style.borderRadius = '0';
-        notify(true);
-        notifyWhenCurrent(true);
+
+        var ol = document.getElementById('nova3d-viewer-overlay');
+        if (ol) nova3dSetOverlayFullscreen(ol);
+
+        // Notify the viewer to switch to full-ui mode (multiple retries for
+        // any browser-specific timing quirk around DOM adoption).
+        [0, 80, 250].forEach(function(ms) {
+          setTimeout(function() {
+            if (frame.dataset.nova3dFullscreenState !== 'full') return;
+            try {
+              frame.contentWindow.postMessage(
+                { type: 'nova3d-viewer-fullscreen-state', full: true }, '*');
+            } catch(_) {}
+          }, ms);
+        });
       }
 
       if (data.action === 'exit') {
+        // ── Compact mode: shrink the overlay to the saved compact rect.
+        // The iframe is NEVER moved back into Flutter's DOM.
         frame.dataset.nova3dFullscreenState = 'compact';
-        setViewerUrlMode('preview');
-        notify(false);
-        exitNova3dViewerFullscreen(frame);
-        notifyWhenCurrent(false);
+        document.body.style.overflow = nova3dPreviousBodyOverflow;
+
+        // Resize the overlay synchronously so that when the viewer's
+        // setViewportMode(false) runs onResize() it measures the compact size.
+        nova3dApplyCompactOverlay(frame);
+
+        // Continue tracking in case the slot rect becomes available (Flutter
+        // scroll updates) — falls back to saved rect when slot is 0×0.
+        nova3dStartCompactTracking(frame);
+
+        // Send the compact notification.  postMessage is async, so by the
+        // time the viewer processes it the overlay already has compact size.
+        try {
+          frame.contentWindow.postMessage(
+            { type: 'nova3d-viewer-fullscreen-state', full: false }, '*');
+        } catch(_) {}
       }
     });
 
+    // Full teardown — called only by the ESC key or page unload, not by the
+    // normal minimize button.  The iframe is discarded along with the overlay.
     function exitNova3dViewerFullscreen(frame) {
       if (!frame || !frame.dataset.nova3dFullscreen) return;
-      frame.style.position = frame.dataset.nova3dStylePosition || '';
-      frame.style.inset = frame.dataset.nova3dStyleInset || '';
-      frame.style.width = frame.dataset.nova3dStyleWidth || '';
-      frame.style.height = frame.dataset.nova3dStyleHeight || '';
-      frame.style.zIndex = frame.dataset.nova3dStyleZIndex || '';
-      frame.style.borderRadius = frame.dataset.nova3dStyleBorderRadius || '';
-      if (frame.__nova3dParent) {
-        frame.__nova3dParent.insertBefore(frame, frame.__nova3dNextSibling || null);
-      }
+      nova3dStopCompactTracking();
       var overlay = document.getElementById('nova3d-viewer-overlay');
-      if (overlay && overlay.parentNode) {
-        overlay.parentNode.removeChild(overlay);
-      }
-      delete frame.dataset.nova3dFullscreen;
-      delete frame.dataset.nova3dStylePosition;
-      delete frame.dataset.nova3dStyleInset;
-      delete frame.dataset.nova3dStyleWidth;
-      delete frame.dataset.nova3dStyleHeight;
-      delete frame.dataset.nova3dStyleZIndex;
-      delete frame.dataset.nova3dStyleBorderRadius;
-      delete frame.dataset.nova3dFullscreenState;
-      delete frame.__nova3dParent;
-      delete frame.__nova3dNextSibling;
+      if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
       document.body.style.overflow = nova3dPreviousBodyOverflow;
+      delete frame.dataset.nova3dFullscreen;
+      delete frame.dataset.nova3dFullscreenState;
+      delete frame.__nova3dSlot;
       if (nova3dFullscreenFrame === frame) nova3dFullscreenFrame = null;
     }
 
     window.addEventListener('keydown', function (event) {
       if (event.key !== 'Escape' || !nova3dFullscreenFrame) return;
+      if (nova3dFullscreenFrame.dataset.nova3dFullscreenState !== 'full') return;
       var frame = nova3dFullscreenFrame;
-      exitNova3dViewerFullscreen(frame);
+      frame.dataset.nova3dFullscreenState = 'compact';
+      document.body.style.overflow = nova3dPreviousBodyOverflow;
+      nova3dApplyCompactOverlay(frame);
+      nova3dStartCompactTracking(frame);
       try {
-        frame.contentWindow.postMessage({
-          type: 'nova3d-viewer-fullscreen-state',
-          full: false
-        }, '*');
-      } catch (_) {}
+        frame.contentWindow.postMessage(
+          { type: 'nova3d-viewer-fullscreen-state', full: false }, '*');
+      } catch(_) {}
     });
   </script>
   <script>

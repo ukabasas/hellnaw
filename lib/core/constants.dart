@@ -16,6 +16,8 @@ const String kCadBaseUrl = String.fromEnvironment(
 );
 
 const String kSketchTo3dWorkflow = 'sketch_to_3d';
+const String kRegenerate3dPartWorkflow = 'regenerate_3d_part';
+const String kAdd3dPartWorkflow = 'add_3d_part';
 const int kMaxReferenceImageBytes = 8 * 1024 * 1024;
 
 // ── Storage keys ──────────────────────────────────────────────────────────────

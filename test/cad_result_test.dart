@@ -17,6 +17,40 @@ void main() {
     expect(result.errorMessage, isNull);
   });
 
+  test('extracts code artifact from generation result', () {
+    final result = CadResult.fromJson({
+      'sketch_to_3d_generator': [
+        {
+          'model_url': 'https://example.test/model.glb',
+          'code_artifact': {
+            'url': 'https://example.test/model.py',
+            'content_type': 'text/x-python; charset=utf-8',
+          },
+        },
+      ],
+    });
+
+    expect(result.failed, isFalse);
+    expect(result.codeArtifact?['url'], 'https://example.test/model.py');
+  });
+
+  test('extracts edit workflow output', () {
+    final result = CadResult.fromJson({
+      'regenerate_3d_part': [
+        {
+          'result': {
+            'model_url': 'https://example.test/edited.glb',
+            'code_artifact': {'url': 'https://example.test/edited.py'},
+          },
+        },
+      ],
+    });
+
+    expect(result.failed, isFalse);
+    expect(result.glbUrl, 'https://example.test/edited.glb');
+    expect(result.codeArtifact?['url'], 'https://example.test/edited.py');
+  });
+
   test('extracts structured soft failure from nested tool result', () {
     final result = CadResult.fromJson({
       'sketch_to_3d_generator': [

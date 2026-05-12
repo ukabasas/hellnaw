@@ -332,6 +332,7 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
         isStreaming: false,
         modelUrl: result.glbUrl,
         workflowId: startedWorkflowId,
+        codeArtifact: result.codeArtifact,
         retryRequest: failed ? request : null,
       );
       _upsert(msg);
@@ -408,6 +409,7 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
           isStreaming: false,
           modelUrl: result.glbUrl,
           workflowId: workflowId,
+          codeArtifact: result.codeArtifact,
         ),
       );
     } on CadException catch (e) {

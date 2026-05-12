@@ -6,10 +6,12 @@ class GlbViewerPlatform extends StatelessWidget {
     super.key,
     required this.src,
     required this.autoRotate,
+    this.codeArtifact,
   });
 
   final String src;
   final bool autoRotate;
+  final Map<String, dynamic>? codeArtifact;
 
   @override
   Widget build(BuildContext context) {

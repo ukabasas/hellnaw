@@ -129,6 +129,81 @@ class CadService {
     }
   }
 
+  Future<String> startRegeneratePart({
+    required Map<String, dynamic> codeArtifact,
+    required String description,
+    String? partType,
+    String? workflowId,
+  }) {
+    return _startEditWorkflow(
+      workflow: kRegenerate3dPartWorkflow,
+      returnNode: 'regenerate_3d_part',
+      workflowId: workflowId,
+      payload: {
+        'code_artifact': codeArtifact,
+        'description': description.trim(),
+        'part_type': (partType == null || partType.trim().isEmpty)
+            ? 'selected part'
+            : partType.trim(),
+      },
+    );
+  }
+
+  Future<String> startAddPart({
+    required Map<String, dynamic> codeArtifact,
+    required String description,
+    String? workflowId,
+  }) {
+    return _startEditWorkflow(
+      workflow: kAdd3dPartWorkflow,
+      returnNode: 'add_3d_part',
+      workflowId: workflowId,
+      payload: {
+        'code_artifact': codeArtifact,
+        'description': description.trim(),
+      },
+    );
+  }
+
+  Future<String> _startEditWorkflow({
+    required String workflow,
+    required String returnNode,
+    required Map<String, dynamic> payload,
+    String? workflowId,
+  }) async {
+    if ((payload['description'] as String? ?? '').isEmpty) {
+      throw CadException('Describe the edit you want to make.');
+    }
+    final requestedWorkflowId = workflowId ?? createWorkflowId();
+
+    try {
+      final option = await _defaultModelOption();
+      final apiKey = await _apiKeyFor(option);
+      final response = await _dio.post(
+        '/run/state/$workflow',
+        queryParameters: {'request_id': requestedWorkflowId},
+        data: {
+          'payload': {
+            ...payload,
+            'llm': option.llm,
+            'provider': option.payloadProvider,
+            'api_key': apiKey,
+          },
+          'return_nodes': [returnNode],
+        },
+        options: await _authOptions(receiveTimeout: _startReceiveTimeout),
+      );
+      final returnedWorkflowId = response.data['workflow_id'] as String?;
+      if (returnedWorkflowId == null || returnedWorkflowId.isEmpty) {
+        throw CadException('Edit workflow did not return a workflow id.');
+      }
+      return returnedWorkflowId;
+    } on DioException catch (e) {
+      if (_mayHaveStarted(e)) return requestedWorkflowId;
+      throw CadException(_errorMessage(e));
+    }
+  }
+
   Future<String> _apiKeyFor(GenerationModelOption option) async {
     final keys = await _apiKeys.loadValidKeys();
     final apiKey = keys[option.keyProvider.id];
@@ -136,6 +211,15 @@ class CadService {
       throw CadException('Add a ${option.keyProvider.label} key in Settings.');
     }
     return apiKey;
+  }
+
+  Future<GenerationModelOption> _defaultModelOption() async {
+    final keys = await _apiKeys.loadValidKeys();
+    final options = GenerationModelOption.forKeys(keys);
+    if (options.isEmpty) {
+      throw CadException('Add a Gemini, Anthropic, or OpenAI key in Settings.');
+    }
+    return options.first;
   }
 
   Future<WorkflowStatus> getStatus(String workflowId) async {
