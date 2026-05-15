@@ -48,7 +48,7 @@ flutter run -d web-server --web-hostname 0.0.0.0 --web-port 5555
 
 ## Demo
 
-[![Editable parts — quick look](https://i.imgur.com/mnHrRKG.png)](https://www.youtube.com/watch?v=9tpWOoSxTPQ)
+[![Editable parts — quick look](https://i.imgur.com/mnHrRKG.png)](https://www.youtube.com/watch?v=rLzkfTzDdwY)
 ☝️Prompt: Make a washing machine with detailed internal mechanics
 
 ---
