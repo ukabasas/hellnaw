@@ -16,7 +16,7 @@ class _OAuthCallbackPageState extends ConsumerState<OAuthCallbackPage> {
   @override
   void initState() {
     super.initState();
-    _handleCallback();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _handleCallback());
   }
 
   Future<void> _handleCallback() async {
@@ -49,7 +49,8 @@ class _OAuthCallbackPageState extends ConsumerState<OAuthCallbackPage> {
     try {
       await ref.read(authProvider.notifier).handleOAuthCallback(token);
       if (mounted) context.go('/');
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('[OAuthCallback] auth failed: $e\n$st');
       if (mounted) context.go('/signin?error=auth_failed');
     }
   }

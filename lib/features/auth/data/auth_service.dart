@@ -4,11 +4,16 @@ import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web/web.dart' as web;
 import 'package:nova3d_frontend/core/constants.dart';
+import 'package:nova3d_frontend/core/errors.dart';
 import 'package:nova3d_frontend/shared/models/user_model.dart';
 
 class AuthException implements Exception {
   final String message;
   AuthException(this.message);
+
+  AppError toAppError() =>
+      AppError(message, kind: AppErrorKind.authentication, cause: this);
+
   @override
   String toString() => message;
 }
@@ -148,9 +153,7 @@ class AuthService {
 
   UserModel _userFromJwt(String token) {
     final parts = token.split('.');
-    if (parts.length != 3) {
-      throw const FormatException('Invalid token');
-    }
+    if (parts.length != 3) throw const FormatException('Invalid token');
 
     final payload = json.decode(
       utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
@@ -168,10 +171,10 @@ class AuthService {
     }
 
     final id = payload['sub'] as String?;
-    final email = payload['email'] as String?;
-    if (id == null || id.isEmpty || email == null || email.isEmpty) {
-      throw const FormatException('Missing user claims');
-    }
+    if (id == null || id.isEmpty) throw const FormatException('Missing sub claim');
+
+    // email is not a required JWT claim in all FastAPI Users configurations.
+    final email = payload['email'] as String? ?? '';
 
     return UserModel(
       id: id,

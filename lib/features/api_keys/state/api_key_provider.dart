@@ -1,21 +1,25 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:nova3d_frontend/features/api_keys/data/api_key_local_source.dart';
 import 'package:nova3d_frontend/features/api_keys/data/api_key_service.dart';
 import 'package:nova3d_frontend/features/api_keys/models/api_key_models.dart';
+final apiKeyLocalSourceProvider =
+    Provider<ApiKeyLocalSource>((_) => ApiKeyLocalSource());
 
-final apiKeyServiceProvider = Provider<ApiKeyService>((_) => ApiKeyService());
-
-final apiKeysProvider = StateNotifierProvider<ApiKeysNotifier, ApiKeysState>((
-  ref,
-) {
-  return ApiKeysNotifier(ref.watch(apiKeyServiceProvider));
+final apiKeyServiceProvider = Provider<ApiKeyService>((ref) {
+  return ApiKeyService(ref.watch(apiKeyLocalSourceProvider));
 });
 
-class ApiKeysNotifier extends StateNotifier<ApiKeysState> {
-  ApiKeysNotifier(this._service) : super(ApiKeysState.empty()) {
-    load();
+final apiKeysProvider =
+    NotifierProvider<ApiKeysNotifier, ApiKeysState>(ApiKeysNotifier.new);
+
+class ApiKeysNotifier extends Notifier<ApiKeysState> {
+  @override
+  ApiKeysState build() {
+    Future.microtask(load);
+    return ApiKeysState.empty();
   }
 
-  final ApiKeyService _service;
+  ApiKeyService get _service => ref.read(apiKeyServiceProvider);
 
   Future<void> load() async {
     state = state.copyWith(loading: true, clearMessage: true);

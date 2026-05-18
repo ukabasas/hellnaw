@@ -25,3 +25,12 @@ const int kMaxReferenceImageBytes = 8 * 1024 * 1024;
 
 const String kTokenKey = 'auth_token';
 const String kUserKey = 'auth_user';
+
+// ── Layout ────────────────────────────────────────────────────────────────────
+
+const double kSidebarBreakpoint = 768;
+const double kSidebarWidth = 260;
+const double kInputCompactBreakpoint = 560;
+const double kContentMaxWidth = 800;
+const double kBubbleMaxWidth = 640;
+const double kViewerDefaultHeight = 400;

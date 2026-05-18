@@ -15,6 +15,8 @@ class GlbViewerPlatform extends StatelessWidget {
     this.sourceWorkflowId,
     this.editModelOptions = const [],
     this.defaultEditModelOptionId,
+    this.onArticulationCompleted,
+    this.viewerStateKey,
   });
 
   final String src;
@@ -27,6 +29,13 @@ class GlbViewerPlatform extends StatelessWidget {
   final String? sourceWorkflowId;
   final List<GenerationModelOption> editModelOptions;
   final String? defaultEditModelOptionId;
+  final void Function(
+    String,
+    String,
+    Map<String, dynamic>?,
+    List<Map<String, dynamic>>,
+  )? onArticulationCompleted;
+  final String? viewerStateKey;
 
   @override
   Widget build(BuildContext context) {

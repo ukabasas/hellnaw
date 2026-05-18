@@ -1,15 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:nova3d_frontend/core/constants.dart';
 import 'package:nova3d_frontend/core/theme.dart';
 import 'package:nova3d_frontend/features/cad/state/cad_provider.dart';
+import 'package:nova3d_frontend/features/chat/presentation/widgets/generation_progress_card.dart';
+import 'package:nova3d_frontend/features/chat/state/chat_provider.dart';
 import 'package:nova3d_frontend/shared/models/message_model.dart';
 import 'package:nova3d_frontend/shared/widgets/glb_viewer.dart';
+import 'package:nova3d_frontend/shared/widgets/nova_cube.dart';
 
 class MessageBubble extends ConsumerWidget {
-  const MessageBubble({super.key, required this.message, this.onRetry});
+  const MessageBubble({
+    super.key,
+    required this.message,
+    this.onRetry,
+    this.conversationId,
+  });
   final MessageModel message;
   final VoidCallback? onRetry;
+  final String? conversationId;
 
   bool get _isUser => message.role == MessageRole.user;
 
@@ -22,9 +33,8 @@ class MessageBubble extends ConsumerWidget {
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: _isUser
-            ? MainAxisAlignment.end
-            : MainAxisAlignment.start,
+        mainAxisAlignment:
+            _isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
         children: [
           if (!_isUser) ...[_Avatar(isUser: false), const SizedBox(width: 10)],
           Flexible(
@@ -33,7 +43,9 @@ class MessageBubble extends ConsumerWidget {
                   ? CrossAxisAlignment.end
                   : CrossAxisAlignment.start,
               children: [
-                if (message.text.isNotEmpty)
+                if (!_isUser && message.isStreaming)
+                  GenerationProgressCard(statusText: message.text)
+                else if (message.text.isNotEmpty)
                   _BubbleContent(message: message, isUser: _isUser),
                 if (message.imageDataUrl != null) ...[
                   const SizedBox(height: 6),
@@ -42,10 +54,11 @@ class MessageBubble extends ConsumerWidget {
                 if (!message.isStreaming && message.modelUrl != null) ...[
                   const SizedBox(height: 8),
                   SizedBox(
-                    height: 400,
+                    height: kViewerDefaultHeight,
                     child: GlbViewer(
                       key: ValueKey(message.id),
                       src: message.modelUrl!,
+                      viewerStateKey: message.id,
                       modelArtifact: message.modelArtifact,
                       codeArtifact: message.codeArtifact,
                       jointsArtifact: message.jointsArtifact,
@@ -54,6 +67,21 @@ class MessageBubble extends ConsumerWidget {
                       sourceWorkflowId: message.workflowId,
                       editModelOptions: editModelOptions,
                       defaultEditModelOptionId: message.modelOptionId,
+                      onArticulationCompleted: conversationId != null
+                          ? (glbUrl, workflowId, jointsArtifact, joints) {
+                              ref
+                                  .read(
+                                    messagesProvider(conversationId!).notifier,
+                                  )
+                                  .patchArticulation(
+                                    message.id,
+                                    modelUrl: glbUrl,
+                                    workflowId: workflowId,
+                                    jointsArtifact: jointsArtifact,
+                                    joints: joints,
+                                  );
+                            }
+                          : null,
                     ),
                   ),
                 ],
@@ -93,6 +121,14 @@ class _BubbleContentState extends State<_BubbleContent> {
 
   @override
   Widget build(BuildContext context) {
+    final bg = widget.isUser ? kLilacBg : kMintBg;
+    final radius = BorderRadius.only(
+      topLeft: const Radius.circular(14),
+      topRight: const Radius.circular(14),
+      bottomLeft: Radius.circular(widget.isUser ? 14 : 4),
+      bottomRight: Radius.circular(widget.isUser ? 4 : 14),
+    );
+
     return MouseRegion(
       onEnter: (_) => setState(() => _hovering = true),
       onExit: (_) => setState(() => _hovering = false),
@@ -101,22 +137,21 @@ class _BubbleContentState extends State<_BubbleContent> {
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            constraints: const BoxConstraints(maxWidth: 640),
+            constraints: BoxConstraints(maxWidth: kBubbleMaxWidth),
             decoration: BoxDecoration(
-              color: widget.isUser ? kAccentBlue : kBgTertiary,
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(16),
-                topRight: const Radius.circular(16),
-                bottomLeft: Radius.circular(widget.isUser ? 16 : 4),
-                bottomRight: Radius.circular(widget.isUser ? 4 : 16),
-              ),
+              color: bg,
+              borderRadius: radius,
+              border: Border.all(color: kInk, width: 1.5),
+              boxShadow: const [
+                BoxShadow(color: kInk, offset: Offset(2, 2), blurRadius: 0)
+              ],
             ),
             child: widget.message.isStreaming && widget.message.text.isEmpty
                 ? const _TypingIndicator()
                 : SelectableText(
                     widget.message.text,
-                    style: TextStyle(
-                      color: widget.isUser ? Colors.white : kTextPrimary,
+                    style: GoogleFonts.inter(
+                      color: kInk,
                       fontSize: 14,
                       height: 1.6,
                     ),
@@ -140,35 +175,32 @@ class _WorkflowIdBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ConstrainedBox(
-    constraints: const BoxConstraints(maxWidth: 640),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Flexible(
-          child: SelectableText(
-            'WF $workflowId',
-            style: const TextStyle(
-              color: kTextMuted,
-              fontSize: 11,
-              height: 1.2,
+        constraints: BoxConstraints(maxWidth: kBubbleMaxWidth),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: SelectableText(
+                'WF $workflowId',
+                style: kSilkscreen(9, color: kInkMuted, letterSpacing: 0.4),
+              ),
             ),
-          ),
+            const SizedBox(width: 4),
+            Tooltip(
+              message: 'Copy workflow id',
+              child: IconButton(
+                onPressed: () =>
+                    Clipboard.setData(ClipboardData(text: workflowId)),
+                icon: const Icon(Icons.copy, size: 14),
+                color: kInkMuted,
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 4),
-        Tooltip(
-          message: 'Copy workflow id',
-          child: IconButton(
-            onPressed: () => Clipboard.setData(ClipboardData(text: workflowId)),
-            icon: const Icon(Icons.copy, size: 14),
-            color: kTextMuted,
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-          ),
-        ),
-      ],
-    ),
-  );
+      );
 }
 
 class _CopyButton extends StatelessWidget {
@@ -177,21 +209,25 @@ class _CopyButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Tooltip(
-    message: 'Copy',
-    child: InkWell(
-      onTap: () => Clipboard.setData(ClipboardData(text: text)),
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: kBgTertiary,
+        message: 'Copy',
+        child: InkWell(
+          onTap: () => Clipboard.setData(ClipboardData(text: text)),
           borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: kBorderColor),
+          child: Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: kSurface,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: kInk, width: 1.5),
+              boxShadow: const [
+                BoxShadow(
+                    color: kInk, offset: Offset(1, 1), blurRadius: 0)
+              ],
+            ),
+            child: const Icon(Icons.copy, size: 14, color: kInkSoft),
+          ),
         ),
-        child: const Icon(Icons.copy, size: 14, color: kTextSecondary),
-      ),
-    ),
-  );
+      );
 }
 
 class _Avatar extends StatelessWidget {
@@ -199,22 +235,27 @@ class _Avatar extends StatelessWidget {
   final bool isUser;
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: 32,
-    height: 32,
-    decoration: BoxDecoration(
-      color: isUser ? kAccentBlue.withValues(alpha: 0.2) : kBgTertiary,
-      shape: BoxShape.circle,
-      border: Border.all(color: kBorderColor),
-    ),
-    child: Center(
-      child: Icon(
-        isUser ? Icons.person : Icons.auto_awesome,
-        size: 16,
-        color: isUser ? kAccentBlue : kTextSecondary,
+  Widget build(BuildContext context) {
+    if (!isUser) return const NovaCube(size: 32);
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        color: kPinkBg,
+        shape: BoxShape.circle,
+        border: Border.all(color: kInk, width: 1.5),
+        boxShadow: const [
+          BoxShadow(color: kInk, offset: Offset(2, 2), blurRadius: 0),
+        ],
       ),
-    ),
-  );
+      child: const Center(
+        child: Text(
+          '✦',
+          style: TextStyle(color: kPink, fontSize: 14, height: 1),
+        ),
+      ),
+    );
+  }
 }
 
 class _Timestamp extends StatelessWidget {
@@ -223,9 +264,9 @@ class _Timestamp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Text(
-    _formatTime(time),
-    style: const TextStyle(color: kTextMuted, fontSize: 11),
-  );
+        _formatTime(time),
+        style: kSilkscreen(9, color: kInkMuted, letterSpacing: 0.4),
+      );
 
   String _formatTime(DateTime dt) {
     final now = DateTime.now();
@@ -242,15 +283,25 @@ class _ImageThumbnail extends StatelessWidget {
   final String dataUrl;
 
   @override
-  Widget build(BuildContext context) => ClipRRect(
-    borderRadius: BorderRadius.circular(8),
-    child: Image.network(
-      dataUrl,
-      height: 160,
-      fit: BoxFit.cover,
-      errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
-    ),
-  );
+  Widget build(BuildContext context) => Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: kInk, width: 1.5),
+          boxShadow: const [
+            BoxShadow(color: kInk, offset: Offset(2, 2), blurRadius: 0)
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8.5),
+          child: Image.network(
+            dataUrl,
+            height: 160,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) =>
+                const SizedBox.shrink(),
+          ),
+        ),
+      );
 }
 
 class _RetryButton extends StatelessWidget {
@@ -259,20 +310,32 @@ class _RetryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Align(
-    alignment: Alignment.centerLeft,
-    child: OutlinedButton.icon(
-      onPressed: onRetry,
-      icon: const Icon(Icons.refresh, size: 14),
-      label: const Text('Retry', style: TextStyle(fontSize: 13)),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: kTextSecondary,
-        side: const BorderSide(color: kBorderColor),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        minimumSize: Size.zero,
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      ),
-    ),
-  );
+        alignment: Alignment.centerLeft,
+        child: GestureDetector(
+          onTap: onRetry,
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: kSurface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: kInk, width: 1.5),
+              boxShadow: const [
+                BoxShadow(
+                    color: kInk, offset: Offset(2, 2), blurRadius: 0)
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.refresh, size: 14, color: kInkSoft),
+                const SizedBox(width: 6),
+                Text('RETRY', style: kSilkscreen(10, color: kInk)),
+              ],
+            ),
+          ),
+        ),
+      );
 }
 
 class _TypingIndicator extends StatefulWidget {
@@ -303,26 +366,24 @@ class _TypingIndicatorState extends State<_TypingIndicator>
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: _ctrl,
-    builder: (_, _) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: List.generate(3, (i) {
-          final delay = i / 3;
-          final t = (_ctrl.value - delay).clamp(0.0, 1.0);
-          final opacity = (t < 0.5 ? t * 2 : (1 - t) * 2).clamp(0.3, 1.0);
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: Opacity(
-              opacity: opacity,
-              child: const CircleAvatar(
-                radius: 4,
-                backgroundColor: kTextSecondary,
+        animation: _ctrl,
+        builder: (_, _) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(3, (i) {
+            final delay = i / 3;
+            final t = (_ctrl.value - delay).clamp(0.0, 1.0);
+            final opacity = (t < 0.5 ? t * 2 : (1 - t) * 2).clamp(0.3, 1.0);
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Opacity(
+                opacity: opacity,
+                child: CircleAvatar(
+                  radius: 4,
+                  backgroundColor: kInkSoft,
+                ),
               ),
-            ),
-          );
-        }),
+            );
+          }),
+        ),
       );
-    },
-  );
 }

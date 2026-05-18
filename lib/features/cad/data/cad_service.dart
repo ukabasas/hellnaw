@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:nova3d_frontend/core/constants.dart';
+import 'package:nova3d_frontend/core/errors.dart';
 import 'package:nova3d_frontend/features/api_keys/data/api_key_service.dart';
 import 'package:nova3d_frontend/features/auth/data/auth_service.dart';
 import 'package:nova3d_frontend/features/cad/models/cad_models.dart';
@@ -9,6 +10,9 @@ import 'package:nova3d_frontend/features/cad/models/generation_request.dart';
 class CadException implements Exception {
   CadException(this.message);
   final String message;
+
+  AppError toAppError() =>
+      AppError(message, kind: AppErrorKind.network, cause: this);
 
   @override
   String toString() => message;
@@ -103,6 +107,8 @@ class CadService {
             'prompt': request.prompt.trim(),
             'llm': request.modelOption.llm,
             'provider': request.modelOption.payloadProvider,
+            // TODO(security): remove once backend retrieves keys server-side
+            // per user session instead of receiving them in the request body.
             'api_key': apiKey,
             'validate': false,
             if (request.hasImage) ...{
@@ -255,6 +261,8 @@ class CadService {
             ...payload,
             'llm': modelOption.llm,
             'provider': modelOption.payloadProvider,
+            // TODO(security): remove once backend retrieves keys server-side
+            // per user session instead of receiving them in the request body.
             'api_key': apiKey,
           },
           'return_nodes': [returnNode],

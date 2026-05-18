@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:nova3d_frontend/core/constants.dart';
 import 'package:nova3d_frontend/core/theme.dart';
 import 'package:nova3d_frontend/features/auth/state/auth_provider.dart';
 import 'package:nova3d_frontend/features/chat/state/chat_provider.dart';
@@ -11,60 +13,51 @@ class AppSidebar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final user = ref.watch(authProvider).user;
+    final user = ref.watch(authProvider).valueOrNull;
     final conversations = ref.watch(conversationsProvider);
-    final currentLocation = GoRouter.of(context).state.uri.toString();
+    final currentLocation = GoRouterState.of(context).uri.toString();
 
     return Container(
-      width: 260,
-      color: kBgSecondary,
+      width: kSidebarWidth,
+      color: kSurface,
       child: Column(
         children: [
           // Header / logo
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
+            padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
             child: Row(
               children: [
-                const NovaLogo(size: 28),
+                const NovaLogo(size: 26),
                 const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.add, color: kTextSecondary, size: 20),
+                _IconBtn(
+                  icon: Icons.add,
                   tooltip: 'New conversation',
-                  onPressed: () => context.go('/'),
+                  onTap: () => context.go('/'),
                 ),
               ],
             ),
           ),
-          const Divider(color: kBorderColor, height: 1),
+          Container(height: 1, color: kInk),
 
           // New chat button
           Padding(
             padding: const EdgeInsets.all(12),
-            child: SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () => context.go('/'),
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('New 3D creation'),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  alignment: Alignment.centerLeft,
-                ),
-              ),
+            child: _AccentButton(
+              label: 'New creation',
+              icon: Icons.add,
+              onTap: () => context.go('/'),
             ),
           ),
 
           // Conversations label
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Row(
-              children: [
-                Text('Recent',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(fontWeight: FontWeight.w600, fontSize: 11)),
-              ],
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'RECENT',
+                style: kSilkscreen(9, color: kInkMuted, letterSpacing: 0.8),
+              ),
             ),
           ),
 
@@ -74,20 +67,23 @@ class AppSidebar extends ConsumerWidget {
               loading: () => const Center(
                 child: Padding(
                   padding: EdgeInsets.all(24),
-                  child:
-                      CircularProgressIndicator(color: kAccentBlue, strokeWidth: 2),
+                  child: CircularProgressIndicator(
+                    color: kLilac,
+                    strokeWidth: 2,
+                  ),
                 ),
               ),
               error: (_, _) => Center(
                 child: Text('Failed to load',
-                    style: Theme.of(context).textTheme.bodySmall),
+                    style: GoogleFonts.inter(color: kInkMuted, fontSize: 12)),
               ),
               data: (convs) => convs.isEmpty
                   ? Center(
                       child: Padding(
                         padding: const EdgeInsets.all(24),
                         child: Text('No conversations yet',
-                            style: Theme.of(context).textTheme.bodySmall),
+                            style: GoogleFonts.inter(
+                                color: kInkMuted, fontSize: 12)),
                       ),
                     )
                   : ListView.builder(
@@ -117,7 +113,7 @@ class AppSidebar extends ConsumerWidget {
             ),
           ),
 
-          const Divider(color: kBorderColor, height: 1),
+          Container(height: 1, color: kLineSoft),
 
           // Bottom nav
           _SidebarNavItem(
@@ -142,37 +138,43 @@ class AppSidebar extends ConsumerWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
-                  color: kBgTertiary,
+                  color: kLilacBg,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: kBorderColor),
+                  border: Border.all(color: kLineSoft),
                 ),
                 child: Row(
                   children: [
-                    CircleAvatar(
-                      radius: 14,
-                      backgroundColor:
-                          kAccentBlue.withValues(alpha: 0.2),
-                      child: Text(
-                        user.email.substring(0, 1).toUpperCase(),
-                        style: const TextStyle(
-                            color: kAccentBlue,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600),
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: kPink,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: kInk, width: 1.5),
+                      ),
+                      child: Center(
+                        child: Text(
+                          user.email.isNotEmpty
+                              ? user.email.substring(0, 1).toUpperCase()
+                              : '?',
+                          style: kSilkscreen(11, color: kInk),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
                         user.email,
-                        style: const TextStyle(
-                            color: kTextSecondary, fontSize: 12),
+                        style: GoogleFonts.inter(
+                            color: kInkSoft, fontSize: 12),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.logout,
-                          size: 16, color: kTextMuted),
+                      icon: const Icon(Icons.logout, size: 15, color: kInkMuted),
                       tooltip: 'Sign out',
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
                       onPressed: () async {
                         await ref.read(authProvider.notifier).signOut();
                         if (context.mounted) context.go('/signin');
@@ -188,6 +190,79 @@ class AppSidebar extends ConsumerWidget {
   }
 }
 
+// ── Accent button ──────────────────────────────────────────────────────────────
+class _AccentButton extends StatefulWidget {
+  const _AccentButton({required this.label, required this.icon, required this.onTap});
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  State<_AccentButton> createState() => _AccentButtonState();
+}
+
+class _AccentButtonState extends State<_AccentButton> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 80),
+          transform: Matrix4.translationValues(
+              _pressed ? 2 : 0, _pressed ? 2 : 0, 0),
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+          decoration: BoxDecoration(
+            color: kPink,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: kInk, width: 1.5),
+            boxShadow: _pressed
+                ? []
+                : const [
+                    BoxShadow(
+                        color: kInk, offset: Offset(2, 2), blurRadius: 0)
+                  ],
+          ),
+          child: Row(
+            children: [
+              Icon(widget.icon, size: 16, color: kInk),
+              const SizedBox(width: 8),
+              Text(
+                widget.label.toUpperCase(),
+                style: kSilkscreen(11, color: kInk),
+              ),
+            ],
+          ),
+        ),
+      );
+}
+
+// ── Icon button ────────────────────────────────────────────────────────────────
+class _IconBtn extends StatelessWidget {
+  const _IconBtn({required this.icon, required this.onTap, required this.tooltip});
+  final IconData icon;
+  final VoidCallback onTap;
+  final String tooltip;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+        message: tooltip,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: Icon(icon, color: kInkSoft, size: 20),
+          ),
+        ),
+      );
+}
+
+// ── Conversation tile ──────────────────────────────────────────────────────────
 class _ConversationTile extends StatefulWidget {
   const _ConversationTile({
     required this.title,
@@ -211,49 +286,73 @@ class _ConversationTileState extends State<_ConversationTile> {
   Widget build(BuildContext context) => MouseRegion(
         onEnter: (_) => setState(() => _hovering = true),
         onExit: (_) => setState(() => _hovering = false),
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 1),
-          decoration: BoxDecoration(
-            color: widget.isActive
-                ? kAccentBlue.withValues(alpha: 0.12)
-                : _hovering
-                    ? kBgTertiary
-                    : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: ListTile(
-            dense: true,
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
-            leading: Icon(
-              Icons.chat_bubble_outline,
-              size: 16,
-              color: widget.isActive ? kAccentBlue : kTextMuted,
-            ),
-            title: Text(
-              widget.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: widget.isActive ? kAccentBlue : kTextSecondary,
-                fontSize: 13,
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: Container(
+            margin: const EdgeInsets.symmetric(vertical: 2),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: widget.isActive
+                  ? kPinkBg
+                  : _hovering
+                      ? kLineSoft
+                      : Colors.transparent,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: widget.isActive ? kInk : Colors.transparent,
+                width: 1.5,
               ),
+              boxShadow: widget.isActive
+                  ? const [
+                      BoxShadow(
+                          color: kInk, offset: Offset(2, 2), blurRadius: 0)
+                    ]
+                  : [],
             ),
-            trailing: _hovering
-                ? IconButton(
-                    icon: const Icon(Icons.delete_outline,
-                        size: 15, color: kTextMuted),
-                    onPressed: widget.onDelete,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  )
-                : null,
-            onTap: widget.onTap,
+            child: Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: kPink,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: kInk),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    widget.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      color: widget.isActive ? kInk : kInkSoft,
+                      fontSize: 13,
+                      fontWeight: widget.isActive
+                          ? FontWeight.w500
+                          : FontWeight.normal,
+                    ),
+                  ),
+                ),
+                if (_hovering)
+                  InkWell(
+                    onTap: widget.onDelete,
+                    borderRadius: BorderRadius.circular(4),
+                    child: const Padding(
+                      padding: EdgeInsets.all(2),
+                      child: Icon(Icons.close, size: 14, color: kInkMuted),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       );
 }
 
+// ── Sidebar nav item ───────────────────────────────────────────────────────────
 class _SidebarNavItem extends StatefulWidget {
   const _SidebarNavItem({
     required this.icon,
@@ -285,25 +384,33 @@ class _SidebarNavItemState extends State<_SidebarNavItem> {
                 const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               color: widget.isActive
-                  ? kAccentBlue.withValues(alpha: 0.12)
+                  ? kLilacBg
                   : _hovering
-                      ? kBgTertiary
+                      ? kLineSoft
                       : Colors.transparent,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color:
+                    widget.isActive ? kInk : Colors.transparent,
+                width: 1.5,
+              ),
             ),
             child: Row(
               children: [
-                Icon(widget.icon,
-                    size: 16,
-                    color:
-                        widget.isActive ? kAccentBlue : kTextSecondary),
+                Icon(
+                  widget.icon,
+                  size: 16,
+                  color: widget.isActive ? kInk : kInkSoft,
+                ),
                 const SizedBox(width: 10),
                 Text(
                   widget.label,
-                  style: TextStyle(
-                    color:
-                        widget.isActive ? kAccentBlue : kTextSecondary,
+                  style: GoogleFonts.inter(
+                    color: widget.isActive ? kInk : kInkSoft,
                     fontSize: 13,
+                    fontWeight: widget.isActive
+                        ? FontWeight.w500
+                        : FontWeight.normal,
                   ),
                 ),
               ],

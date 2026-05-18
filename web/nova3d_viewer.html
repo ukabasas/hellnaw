@@ -1693,18 +1693,43 @@ function objectParentJointName(object) {
 }
 
 function captureJointNodes() {
+  // Ensure world matrices are up-to-date before computing transforms.
+  modelGroup.updateMatrixWorld(true);
   return articulatedJoints.map(joint => {
     const obj = articulatedObjects[joint.name];
     if (!obj) return null;
-    return {
-      name:joint.name,
-      parentJointName:objectParentJointName(obj),
-      position:obj.position.clone(),
-      rotation:obj.rotation.clone(),
-      scale:obj.scale.clone(),
-      restPos:obj.userData.restPos?.clone?.() || obj.position.clone(),
-      restRot:obj.userData.restRot?.clone?.() || obj.rotation.clone(),
-    };
+    obj.updateMatrixWorld(true);
+
+    const parentJointName = objectParentJointName(obj);
+    const parentObj = parentJointName ? articulatedObjects[parentJointName] : null;
+    // The object that will be the parent after restoreSnapshot runs:
+    // root joints → modelGroup, child joints → their parent joint object.
+    const restoreParent = parentObj || modelGroup;
+    restoreParent.updateMatrixWorld(true);
+
+    // Compute obj's current transform relative to restoreParent.
+    // This corrects for any intermediate nodes (e.g. the gltf scene root) that
+    // carry scale/offset but are NOT recreated during snapshot restore.
+    const toParent = new THREE.Matrix4().copy(restoreParent.matrixWorld).invert();
+    const localMat = new THREE.Matrix4().multiplyMatrices(toParent, obj.matrixWorld);
+    const pos = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
+    localMat.decompose(pos, q, sc);
+    const rot = new THREE.Euler().setFromQuaternion(q, obj.rotation.order || 'XYZ');
+
+    // Compute rest transform relative to restoreParent.
+    // restPos/restRot are stored in obj.parent space; convert to restoreParent space.
+    const restPosInObjParent = (obj.userData.restPos || obj.position).clone();
+    const restRotInObjParent = obj.userData.restRot || obj.rotation;
+    const restQ = new THREE.Quaternion().setFromEuler(restRotInObjParent);
+    const restTRS = new THREE.Matrix4().compose(restPosInObjParent, restQ, obj.scale.clone());
+    const objParentWorld = obj.parent ? obj.parent.matrixWorld.clone() : new THREE.Matrix4();
+    const restWorldMat = new THREE.Matrix4().multiplyMatrices(objParentWorld, restTRS);
+    const restLocalMat = new THREE.Matrix4().multiplyMatrices(toParent, restWorldMat);
+    const restPos = new THREE.Vector3(), restQ2 = new THREE.Quaternion(), restSc2 = new THREE.Vector3();
+    restLocalMat.decompose(restPos, restQ2, restSc2);
+    const restRot = new THREE.Euler().setFromQuaternion(restQ2, obj.rotation.order || 'XYZ');
+
+    return { name:joint.name, parentJointName, position:pos, rotation:rot, scale:sc, restPos, restRot };
   }).filter(Boolean);
 }
 
@@ -3219,7 +3244,7 @@ function applyEditConfig(data) {
   if (data.modelArtifact !== undefined) currentModelArtifact = data.modelArtifact || null;
   if (data.codeArtifact !== undefined) currentCodeArtifact = data.codeArtifact || null;
   if (data.jointsArtifact !== undefined) currentJointsArtifact = data.jointsArtifact || null;
-  if (Array.isArray(data.joints)) {
+  if (Array.isArray(data.joints) && data.joints.length > 0) {
     currentJoints = data.joints;
     bindArticulatedJoints(currentJoints, { preserveValues:true });
   }

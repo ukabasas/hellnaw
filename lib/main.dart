@@ -7,8 +7,9 @@ import 'package:nova3d_frontend/core/theme.dart';
 import 'package:web/web.dart' as web;
 
 void main() {
-  // Keep the local client self-contained. Remote font fetches can make a
-  // localhost build appear stuck when the browser cannot reach Google Fonts.
+  // Resolve Inter/VT323/Silkscreen from the bundled asset fonts (declared
+  // in pubspec.yaml) instead of fetching from fonts.gstatic.com at runtime.
+  // Eliminates the first-frame font swap that runtime fetching causes.
   GoogleFonts.config.allowRuntimeFetching = false;
 
   // Use clean path-based URLs (/route) instead of hash-based (/#/route).

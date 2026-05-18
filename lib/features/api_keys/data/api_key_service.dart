@@ -1,7 +1,6 @@
 import 'package:dio/dio.dart';
+import 'package:nova3d_frontend/features/api_keys/data/api_key_local_source.dart';
 import 'package:nova3d_frontend/features/api_keys/models/api_key_models.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
 class ApiKeyValidationResult {
   const ApiKeyValidationResult({required this.isValid, required this.message});
   final bool isValid;
@@ -9,46 +8,20 @@ class ApiKeyValidationResult {
 }
 
 class ApiKeyService {
-  static const _prefix = 'nova3d_api_key_';
-  static const _validPrefix = 'nova3d_api_key_valid_';
+  ApiKeyService(this._local);
 
-  final Dio _dio = Dio(
-    BaseOptions(
-      connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 10),
-    ),
-  );
+  final ApiKeyLocalSource _local;
 
-  Future<Map<AiProvider, ProviderKeyState>> loadStates() async {
-    final prefs = await SharedPreferences.getInstance();
-    return {
-      for (final provider in AiProvider.values)
-        provider: ProviderKeyState(
-          provider: provider,
-          hasKey: (prefs.getString(_keyName(provider)) ?? '').isNotEmpty,
-          isValid: prefs.getBool(_validName(provider)) ?? false,
-        ),
-    };
-  }
+  // ── Storage delegation ────────────────────────────────────────────────────
 
-  Future<void> clear(AiProvider provider) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_keyName(provider));
-    await prefs.remove(_validName(provider));
-  }
+  Future<Map<AiProvider, ProviderKeyState>> loadStates() =>
+      _local.loadStates();
 
-  Future<Map<String, String>> loadValidKeys() async {
-    final prefs = await SharedPreferences.getInstance();
-    final keys = <String, String>{};
-    for (final provider in AiProvider.values) {
-      final apiKey = prefs.getString(_keyName(provider));
-      final valid = prefs.getBool(_validName(provider)) ?? false;
-      if (valid && apiKey != null && apiKey.isNotEmpty) {
-        keys[provider.id] = apiKey;
-      }
-    }
-    return keys;
-  }
+  Future<Map<String, String>> loadValidKeys() => _local.loadValidKeys();
+
+  Future<void> clear(AiProvider provider) => _local.clear(provider);
+
+  // ── Validation + save orchestration ──────────────────────────────────────
 
   Future<ApiKeyValidationResult> saveValidated(
     AiProvider provider,
@@ -63,12 +36,12 @@ class ApiKeyService {
     final validation = await validate(provider, trimmed);
     if (!validation.isValid) return validation;
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyName(provider), trimmed);
-    await prefs.setBool(_validName(provider), true);
+    await _local.save(provider, trimmed, isValid: true);
     return validation;
   }
 
+  // TODO(security): replace direct provider calls with POST /api/keys/validate
+  // once that backend endpoint is implemented, so keys never leave our backend.
   Future<ApiKeyValidationResult> validate(
     AiProvider provider,
     String apiKey,
@@ -76,44 +49,12 @@ class ApiKeyService {
     try {
       switch (provider) {
         case AiProvider.gemini:
-          await _dio.get(
-            'https://generativelanguage.googleapis.com/v1beta/models',
-            queryParameters: {'key': apiKey},
-          );
+          return await _validateGemini(apiKey);
         case AiProvider.anthropic:
-          await _dio.get(
-            'https://api.anthropic.com/v1/models',
-            options: Options(
-              headers: {
-                'x-api-key': apiKey,
-                'anthropic-version': '2023-06-01',
-                'anthropic-dangerous-direct-browser-access': 'true',
-              },
-            ),
-          );
+          return await _validateAnthropic(apiKey);
         case AiProvider.openai:
-          await _dio.get(
-            'https://api.openai.com/v1/models',
-            options: Options(headers: {'Authorization': 'Bearer $apiKey'}),
-          );
+          return await _validateOpenAi(apiKey);
       }
-      return ApiKeyValidationResult(
-        isValid: true,
-        message:
-            '${provider.label} key saved. Keep at least \$10 credit available for generation.',
-      );
-    } on DioException catch (e) {
-      if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
-        return ApiKeyValidationResult(
-          isValid: false,
-          message: '${provider.label} rejected this key.',
-        );
-      }
-      return ApiKeyValidationResult(
-        isValid: false,
-        message:
-            'Could not validate ${provider.label}. Check the key, browser network access, and provider account status.',
-      );
     } catch (_) {
       return ApiKeyValidationResult(
         isValid: false,
@@ -122,8 +63,85 @@ class ApiKeyService {
     }
   }
 
-  String _keyName(AiProvider provider) => '$_prefix${provider.id}';
-  String _validName(AiProvider provider) => '$_validPrefix${provider.id}';
+  Future<ApiKeyValidationResult> _validateGemini(String apiKey) async {
+    final dio = Dio();
+    try {
+      await dio.get(
+        'https://generativelanguage.googleapis.com/v1beta/models',
+        queryParameters: {'key': apiKey},
+      );
+      return ApiKeyValidationResult(
+        isValid: true,
+        message:
+            'Gemini key saved. Keep at least \$10 credit available for generation.',
+      );
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      if (status == 400 || status == 403) {
+        return const ApiKeyValidationResult(
+          isValid: false,
+          message: 'Gemini rejected this key.',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Future<ApiKeyValidationResult> _validateAnthropic(String apiKey) async {
+    final dio = Dio();
+    try {
+      await dio.get(
+        'https://api.anthropic.com/v1/models',
+        options: Options(
+          headers: {
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true',
+          },
+        ),
+      );
+      return ApiKeyValidationResult(
+        isValid: true,
+        message:
+            'Anthropic key saved. Keep at least \$10 credit available for generation.',
+      );
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      if (status == 401 || status == 403) {
+        return const ApiKeyValidationResult(
+          isValid: false,
+          message: 'Anthropic rejected this key.',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Future<ApiKeyValidationResult> _validateOpenAi(String apiKey) async {
+    final dio = Dio();
+    try {
+      await dio.get(
+        'https://api.openai.com/v1/models',
+        options: Options(
+          headers: {'Authorization': 'Bearer $apiKey'},
+        ),
+      );
+      return ApiKeyValidationResult(
+        isValid: true,
+        message:
+            'OpenAI key saved. Keep at least \$10 credit available for generation.',
+      );
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      if (status == 401 || status == 403) {
+        return const ApiKeyValidationResult(
+          isValid: false,
+          message: 'OpenAI rejected this key.',
+        );
+      }
+      rethrow;
+    }
+  }
 
   String? _formatError(AiProvider provider, String apiKey) {
     if (apiKey.length < 16) return 'Key is too short.';

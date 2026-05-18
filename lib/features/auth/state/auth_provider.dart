@@ -1,94 +1,53 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:nova3d_frontend/features/auth/data/auth_service.dart';
 import 'package:nova3d_frontend/shared/models/user_model.dart';
 
 final authServiceProvider = Provider<AuthService>((ref) => AuthService());
 
-// ── Auth state ────────────────────────────────────────────────────────────────
+class AuthNotifier extends AsyncNotifier<UserModel?> {
+  AuthService get _service => ref.read(authServiceProvider);
 
-enum AuthStatus { loading, authenticated, unauthenticated }
-
-class AuthState {
-  final AuthStatus status;
-  final UserModel? user;
-  final String? error;
-
-  const AuthState({
-    required this.status,
-    this.user,
-    this.error,
-  });
-
-  const AuthState.loading()
-      : status = AuthStatus.loading,
-        user = null,
-        error = null;
-
-  const AuthState.unauthenticated([String? err])
-      : status = AuthStatus.unauthenticated,
-        user = null,
-        error = err;
-
-  const AuthState.authenticated(UserModel u)
-      : status = AuthStatus.authenticated,
-        user = u,
-        error = null;
-}
-
-class AuthNotifier extends StateNotifier<AuthState> {
-  final AuthService _service;
-
-  AuthNotifier(this._service) : super(const AuthState.loading()) {
-    _init();
-  }
-
-  Future<void> _init() async {
+  @override
+  Future<UserModel?> build() async {
     try {
-      final user = await _service.getCurrentUser();
-      state = AuthState.authenticated(user);
+      return await _service.getCurrentUser();
     } catch (_) {
-      state = const AuthState.unauthenticated();
+      return null;
     }
   }
 
   Future<void> signIn(String email, String password) async {
-    state = const AuthState.loading();
+    state = const AsyncValue.loading();
     try {
       await _service.signIn(email, password);
-      final user = await _service.getCurrentUser();
-      state = AuthState.authenticated(user);
-    } on AuthException catch (e) {
-      state = AuthState.unauthenticated(e.message);
+      state = AsyncValue.data(await _service.getCurrentUser());
+    } on AuthException {
+      state = const AsyncValue.data(null);
       rethrow;
     }
   }
 
-  Future<UserModel> signUp(String email, String password) async {
-    try {
-      return await _service.signUp(email, password);
-    } on AuthException {
-      rethrow;
-    }
-  }
+  Future<UserModel> signUp(String email, String password) =>
+      _service.signUp(email, password);
 
   Future<void> handleOAuthCallback(String token) async {
-    state = const AuthState.loading();
+    state = const AsyncValue.loading();
     try {
       await _service.handleOAuthCallback(token);
-      final user = await _service.getCurrentUser();
-      state = AuthState.authenticated(user);
-    } on AuthException catch (e) {
-      state = AuthState.unauthenticated(e.message);
-      rethrow;
+      state = AsyncValue.data(await _service.getCurrentUser());
+    } catch (e, st) {
+      debugPrint('[AuthNotifier] handleOAuthCallback failed: $e\n$st');
+      state = const AsyncValue.data(null);
+      throw AuthException(e is AuthException ? e.message : e.toString());
     }
   }
 
   Future<void> signOut() async {
     await _service.signOut();
-    state = const AuthState.unauthenticated();
+    state = const AsyncValue.data(null);
   }
 }
 
-final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
-  return AuthNotifier(ref.watch(authServiceProvider));
-});
+final authProvider =
+    AsyncNotifierProvider<AuthNotifier, UserModel?>(AuthNotifier.new);

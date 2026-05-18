@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:nova3d_frontend/core/constants.dart';
 import 'package:nova3d_frontend/core/theme.dart';
-import 'package:go_router/go_router.dart';
+import 'package:nova3d_frontend/features/cad/models/generation_model_option.dart';
 import 'package:nova3d_frontend/features/cad/models/generation_request.dart';
+import 'package:nova3d_frontend/features/cad/state/cad_provider.dart';
+import 'package:nova3d_frontend/features/chat/presentation/widgets/chat_input.dart';
 import 'package:nova3d_frontend/features/chat/presentation/widgets/message_bubble.dart';
 import 'package:nova3d_frontend/features/chat/state/chat_provider.dart';
+import 'package:go_router/go_router.dart';
 import 'package:nova3d_frontend/shared/models/message_model.dart';
 
 class ChatPage extends ConsumerStatefulWidget {
@@ -17,6 +21,7 @@ class ChatPage extends ConsumerStatefulWidget {
 
 class _ChatPageState extends ConsumerState<ChatPage> {
   final _scrollCtrl = ScrollController();
+  String? _selectedModelId;
 
   @override
   void initState() {
@@ -53,65 +58,66 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   @override
   Widget build(BuildContext context) {
-    final messageState = ref.watch(messagesProvider(widget.conversationId));
-    final messages = messageState.messages;
+    final messagesAsync = ref.watch(messagesProvider(widget.conversationId));
+    final messages = messagesAsync.valueOrNull?.messages ?? const [];
     final isStreaming = messages.any((m) => m.isStreaming);
     final pendingDraft = ref.watch(
       generationDraftsProvider,
     )[widget.conversationId];
-    final generationDone = messages.isNotEmpty && !isStreaming;
+    final modelOptions = ref.watch(generationModelOptionsProvider);
+    final availableOptions = modelOptions.valueOrNull ?? const [];
+
+    final selectedModel = GenerationModelOption.findById(
+      availableOptions,
+      _selectedModelId,
+    );
+    if (selectedModel != null && selectedModel.id != _selectedModelId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _selectedModelId = selectedModel.id);
+      });
+    }
 
     ref.listen(messagesProvider(widget.conversationId), (_, _) {
       _scrollToBottom();
     });
 
-    // Prompt text for the sticky header — first message is the user prompt.
-    final promptText =
-        messages.isNotEmpty && messages.first.role == MessageRole.user
-        ? messages.first.text.isNotEmpty
-              ? messages.first.text
-              : null
-        : pendingDraft?.prompt.isNotEmpty == true
-        ? pendingDraft!.prompt
-        : null;
-
     return Column(
       children: [
-        // Sticky prompt header — always visible above the scroll area.
-        if (promptText != null) _PromptHeader(text: promptText),
-
-        // Message list.
         Expanded(
-          child: _buildBody(
-            messages,
-            pendingDraft,
-            isStreaming,
-            messageState.loaded,
-          ),
+          child: _buildBody(messagesAsync, messages, pendingDraft),
         ),
 
-        // Bottom bar — new-creation CTA after done, nothing during generation.
-        if (generationDone)
-          _NewCreationBar()
-        else if (messages.isEmpty && pendingDraft == null)
-          // Edge case: navigated directly to a chat URL with no data.
-          _NewCreationBar(),
+        // Conversations are single-turn: once a generation exists, lock the
+        // input and prompt the user to start a new conversation instead.
+        if (messages.any((m) => m.role == MessageRole.assistant))
+          const _NewCreationBar()
+        else
+          ChatInput(
+            modelOptions: availableOptions,
+            selectedModel: selectedModel,
+            onModelChanged: (option) =>
+                setState(() => _selectedModelId = option?.id),
+            disabled: messagesAsync.isLoading || isStreaming,
+            onSend: (request) async {
+              await ref
+                  .read(messagesProvider(widget.conversationId).notifier)
+                  .sendGeneration(request);
+              return true;
+            },
+          ),
       ],
     );
   }
 
   Widget _buildBody(
+    AsyncValue<ChatMessagesState> messagesAsync,
     List<MessageModel> messages,
     GenerationRequest? pendingDraft,
-    bool isStreaming,
-    bool loaded,
   ) {
-    if (!loaded) {
-      return const Center(child: CircularProgressIndicator(color: kAccentBlue));
+    if (messagesAsync.isLoading) {
+      return const Center(child: CircularProgressIndicator(color: kLilac));
     }
 
-    // Show optimistic placeholders while the draft is being processed so the
-    // user never sees the "Start the conversation" empty screen.
     if (messages.isEmpty && pendingDraft != null) {
       return _PendingView(draft: pendingDraft);
     }
@@ -127,6 +133,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       itemBuilder: (_, i) => _CenteredMessage(
         child: MessageBubble(
           message: messages[i],
+          conversationId: widget.conversationId,
           onRetry: messages[i].retryRequest != null
               ? () => ref
                     .read(messagesProvider(widget.conversationId).notifier)
@@ -174,58 +181,6 @@ class _PendingView extends StatelessWidget {
   );
 }
 
-// ── Sticky header showing the user's prompt ───────────────────────────────────
-
-class _PromptHeader extends StatelessWidget {
-  const _PromptHeader({required this.text});
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-    decoration: const BoxDecoration(
-      color: kBgSecondary,
-      border: Border(bottom: BorderSide(color: kBorderColor)),
-    ),
-    child: Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 800),
-        child: Text(
-          text,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: kTextSecondary, fontSize: 13),
-        ),
-      ),
-    ),
-  );
-}
-
-// ── Bottom bar ────────────────────────────────────────────────────────────────
-
-class _NewCreationBar extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-    decoration: const BoxDecoration(
-      color: kBgSecondary,
-      border: Border(top: BorderSide(color: kBorderColor)),
-    ),
-    child: Center(
-      child: TextButton.icon(
-        onPressed: () => context.go('/'),
-        icon: const Icon(Icons.add, size: 16, color: kAccentBlue),
-        label: const Text(
-          'Start a new 3D creation',
-          style: TextStyle(color: kAccentBlue, fontSize: 13),
-        ),
-      ),
-    ),
-  );
-}
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 class _CenteredMessage extends StatelessWidget {
@@ -235,10 +190,52 @@ class _CenteredMessage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Center(
     child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 800),
+      constraints: BoxConstraints(maxWidth: kContentMaxWidth),
       child: child,
     ),
   );
+}
+
+// ── New creation redirect bar ─────────────────────────────────────────────────
+
+class _NewCreationBar extends StatelessWidget {
+  const _NewCreationBar();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        decoration: const BoxDecoration(
+          color: kSurface,
+          border: Border(top: BorderSide(color: kInk, width: 1.5)),
+        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: kContentMaxWidth),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'Want to create something else?',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: kInkSoft, fontSize: 13),
+                ),
+                const SizedBox(width: 12),
+                TextButton.icon(
+                  onPressed: () => context.go('/'),
+                  icon: const Icon(Icons.add, size: 15, color: kLilac),
+                  label: const Text(
+                    'Start a new 3D creation',
+                    style: TextStyle(color: kLilac, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
 }
 
 class _EmptyState extends StatelessWidget {
@@ -251,17 +248,21 @@ class _EmptyState extends StatelessWidget {
           width: 64,
           height: 64,
           decoration: BoxDecoration(
-            color: kAccentBlue.withValues(alpha: 0.1),
+            color: kLilacBg,
             shape: BoxShape.circle,
+            border: Border.all(color: kInk, width: 1.5),
+            boxShadow: const [
+              BoxShadow(color: kInk, offset: Offset(3, 3), blurRadius: 0),
+            ],
           ),
-          child: const Icon(Icons.auto_awesome, color: kAccentBlue, size: 28),
+          child: const Center(
+            child: Text('✦', style: TextStyle(color: kLilac, fontSize: 26)),
+          ),
         ),
         const SizedBox(height: 16),
         Text(
           'Start the conversation',
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(color: kTextPrimary),
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(color: kInk),
         ),
         const SizedBox(height: 8),
         Text(
@@ -270,41 +271,5 @@ class _EmptyState extends StatelessWidget {
         ),
       ],
     ),
-  );
-}
-
-// ── Suggestion pills (used by home page) ─────────────────────────────────────
-
-class SuggestionPills extends StatelessWidget {
-  const SuggestionPills({super.key, required this.onSelect});
-  final void Function(String) onSelect;
-
-  static const _suggestions = [
-    'A modern chair with wooden legs',
-    'A low-poly mountain landscape',
-    'A sci-fi space helmet',
-    'A medieval stone castle tower',
-    'A futuristic car concept',
-  ];
-
-  @override
-  Widget build(BuildContext context) => Wrap(
-    spacing: 8,
-    runSpacing: 8,
-    alignment: WrapAlignment.center,
-    children: _suggestions
-        .map(
-          (s) => ActionChip(
-            label: Text(
-              s,
-              style: const TextStyle(color: kTextSecondary, fontSize: 13),
-            ),
-            backgroundColor: kBgTertiary,
-            side: const BorderSide(color: kBorderColor),
-            onPressed: () => onSelect(s),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          ),
-        )
-        .toList(),
   );
 }

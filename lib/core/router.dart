@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:nova3d_frontend/core/theme.dart';
 import 'package:go_router/go_router.dart';
 import 'package:nova3d_frontend/features/auth/presentation/forgot_password_page.dart';
 import 'package:nova3d_frontend/features/auth/presentation/oauth_callback_page.dart';
 import 'package:nova3d_frontend/features/auth/presentation/sign_in_page.dart';
 import 'package:nova3d_frontend/features/auth/presentation/sign_up_page.dart';
 import 'package:nova3d_frontend/features/auth/state/auth_provider.dart';
+import 'package:nova3d_frontend/shared/models/user_model.dart';
 import 'package:nova3d_frontend/features/chat/presentation/chat_page.dart';
 import 'package:nova3d_frontend/features/home/presentation/home_page.dart';
 import 'package:nova3d_frontend/features/home/presentation/model_preview_page.dart';
@@ -14,11 +16,21 @@ import 'package:nova3d_frontend/features/subscription/presentation/subscription_
 import 'package:nova3d_frontend/shared/widgets/app_layout.dart';
 import 'package:nova3d_frontend/shared/widgets/auth_guard.dart';
 
+CustomTransitionPage<void> _fadePage(LocalKey key, Widget child) =>
+    CustomTransitionPage<void>(
+      key: key,
+      child: child,
+      transitionDuration: const Duration(milliseconds: 160),
+      reverseTransitionDuration: const Duration(milliseconds: 160),
+      transitionsBuilder: (_, animation, _, child) =>
+          FadeTransition(opacity: animation, child: child),
+    );
+
 // Bridges Riverpod auth state into a ChangeNotifier so GoRouter can listen
 // via refreshListenable without recreating the router on every auth change.
 class _AuthRefreshNotifier extends ChangeNotifier {
   _AuthRefreshNotifier(Ref ref) {
-    ref.listen<AuthState>(authProvider, (_, _) => notifyListeners());
+    ref.listen<AsyncValue<UserModel?>>(authProvider, (_, _) => notifyListeners());
   }
 }
 
@@ -31,8 +43,8 @@ final routerProvider = Provider<GoRouter>((ref) {
     redirect: (context, state) {
       // Read current auth state each time redirect fires — never watch.
       final authState = ref.read(authProvider);
-      final isAuthenticated = authState.status == AuthStatus.authenticated;
-      final isLoading = authState.status == AuthStatus.loading;
+      final isAuthenticated = authState.valueOrNull != null;
+      final isLoading = authState.isLoading;
       final path = state.uri.path;
 
       const publicPaths = {
@@ -51,19 +63,23 @@ final routerProvider = Provider<GoRouter>((ref) {
       // ── Public routes ────────────────────────────────────────────────────
       GoRoute(
         path: '/signin',
-        builder: (_, _) => const SignInPage(),
+        pageBuilder: (_, state) => _fadePage(state.pageKey, const SignInPage()),
       ),
       GoRoute(
         path: '/signup',
-        builder: (_, _) => const SignUpPage(),
+        pageBuilder: (_, state) => _fadePage(state.pageKey, const SignUpPage()),
       ),
       GoRoute(
         path: '/forgot-password',
-        builder: (_, _) => const ForgotPasswordPage(),
+        pageBuilder:
+            (_, state) =>
+                _fadePage(state.pageKey, const ForgotPasswordPage()),
       ),
       GoRoute(
         path: '/oauth-callback',
-        builder: (_, _) => const OAuthCallbackPage(),
+        pageBuilder:
+            (_, state) =>
+                _fadePage(state.pageKey, const OAuthCallbackPage()),
       ),
 
       // ── Authenticated shell ──────────────────────────────────────────────
@@ -74,35 +90,53 @@ final routerProvider = Provider<GoRouter>((ref) {
         routes: [
           GoRoute(
             path: '/',
-            builder: (_, _) => const HomePage(),
+            pageBuilder:
+                (_, state) =>
+                    NoTransitionPage(key: state.pageKey, child: const HomePage()),
           ),
           GoRoute(
             path: '/chat/:id',
-            builder: (_, state) => ChatPage(
-              conversationId: state.pathParameters['id']!,
-            ),
+            pageBuilder:
+                (_, state) => NoTransitionPage(
+                  key: state.pageKey,
+                  child: ChatPage(
+                    conversationId: state.pathParameters['id']!,
+                  ),
+                ),
           ),
           GoRoute(
             path: '/subscription',
-            builder: (_, _) => const SubscriptionPage(),
+            pageBuilder:
+                (_, state) => NoTransitionPage(
+                  key: state.pageKey,
+                  child: const SubscriptionPage(),
+                ),
           ),
           GoRoute(
             path: '/settings',
-            builder: (_, _) => const SettingsPage(),
+            pageBuilder:
+                (_, state) => NoTransitionPage(
+                  key: state.pageKey,
+                  child: const SettingsPage(),
+                ),
           ),
           GoRoute(
             path: '/model-preview',
-            builder: (_, _) => const ModelPreviewPage(),
+            pageBuilder:
+                (_, state) => NoTransitionPage(
+                  key: state.pageKey,
+                  child: const ModelPreviewPage(),
+                ),
           ),
         ],
       ),
     ],
     errorBuilder: (_, state) => Scaffold(
-      backgroundColor: const Color(0xFF0F0F0F),
+      backgroundColor: kCream,
       body: Center(
         child: Text(
           'Page not found: ${state.uri}',
-          style: const TextStyle(color: Colors.white70),
+          style: const TextStyle(color: kInkSoft),
         ),
       ),
     ),

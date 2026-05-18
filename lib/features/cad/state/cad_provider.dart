@@ -14,10 +14,10 @@ final cadServiceProvider = Provider<CadService>((ref) {
 
 final generationReadinessProvider = FutureProvider<GenerationReadiness>((ref) {
   final auth = ref.watch(authProvider);
-  if (auth.status == AuthStatus.loading) {
+  if (auth.isLoading) {
     throw CadException('Checking your sign-in session...');
   }
-  if (auth.status != AuthStatus.authenticated) {
+  if (auth.valueOrNull == null) {
     throw CadException('Please sign in again before generating.');
   }
   return ref.watch(cadServiceProvider).checkReadiness();

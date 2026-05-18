@@ -50,3 +50,28 @@ flutter:
     - assets/models/
     - assets/gifs/nova3d/
     - assets/gifs/nova3d/adam-cad-comparison/
+
+  # Bundled Google Fonts. Registering them here lets google_fonts resolve
+  # from the asset bundle (with allowRuntimeFetching = false in main.dart),
+  # eliminating the first-frame font swap from runtime CDN downloads.
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700
+    - family: VT323
+      fonts:
+        - asset: assets/fonts/VT323-Regular.ttf
+          weight: 400
+    - family: Silkscreen
+      fonts:
+        - asset: assets/fonts/Silkscreen-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Silkscreen-Bold.ttf
+          weight: 700

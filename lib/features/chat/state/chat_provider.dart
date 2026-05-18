@@ -1,91 +1,74 @@
-import 'dart:convert';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:nova3d_frontend/features/auth/state/auth_provider.dart';
 import 'package:nova3d_frontend/features/cad/data/cad_service.dart';
 import 'package:nova3d_frontend/features/cad/models/cad_models.dart';
 import 'package:nova3d_frontend/features/cad/models/generation_request.dart';
 import 'package:nova3d_frontend/features/cad/state/cad_provider.dart';
 import 'package:nova3d_frontend/features/chat/data/chat_service.dart';
+import 'package:nova3d_frontend/features/chat/data/conversation_local_source.dart';
+import 'package:nova3d_frontend/features/chat/data/conversation_repository.dart';
+import 'package:nova3d_frontend/features/chat/data/message_local_source.dart';
+import 'package:nova3d_frontend/features/chat/data/message_repository.dart';
 import 'package:nova3d_frontend/shared/models/conversation_model.dart';
 import 'package:nova3d_frontend/shared/models/message_model.dart';
-
-const _kConversationsKey = 'local_conversations';
-const _kMessagesPrefix = 'local_messages_';
 
 final chatServiceProvider = Provider<ChatService>((ref) {
   return ChatService(ref.watch(authServiceProvider));
 });
 
+final conversationLocalSourceProvider = Provider<ConversationLocalSource>(
+  (_) => ConversationLocalSource(),
+);
+
+final messageLocalSourceProvider = Provider<MessageLocalSource>(
+  (_) => MessageLocalSource(),
+);
+
+final conversationRepositoryProvider = Provider<ConversationRepository>((ref) {
+  return ConversationRepository(
+    ref.watch(conversationLocalSourceProvider),
+    ref.watch(chatServiceProvider),
+  );
+});
+
+final messageRepositoryProvider = Provider<MessageRepository>((ref) {
+  return MessageRepository(ref.watch(messageLocalSourceProvider));
+});
+
 // ── Conversations ─────────────────────────────────────────────────────────────
 
-class ConversationsNotifier
-    extends StateNotifier<AsyncValue<List<ConversationModel>>> {
-  ConversationsNotifier() : super(const AsyncValue.loading()) {
-    _load();
-  }
+class ConversationsNotifier extends AsyncNotifier<List<ConversationModel>> {
+  @override
+  Future<List<ConversationModel>> build() =>
+      ref.watch(conversationRepositoryProvider).load();
 
-  Future<void> _load() async {
-    final persisted = await _loadConvsFromPrefs();
-    state = AsyncValue.data(persisted);
-  }
-
-  void prepend(ConversationModel conv) {
+  Future<void> prepend(ConversationModel conv) async {
     final updated = <ConversationModel>[conv, ...state.valueOrNull ?? []];
     state = AsyncValue.data(updated);
-    _saveConvsToPrefs(updated);
+    await ref.read(conversationRepositoryProvider).persist(updated);
   }
 
-  void remove(String id) {
-    final updated = (state.valueOrNull ?? []).where((c) => c.id != id).toList();
+  Future<void> remove(String id) async {
+    final updated = (state.valueOrNull ?? <ConversationModel>[])
+        .where((c) => c.id != id)
+        .toList();
     state = AsyncValue.data(updated);
-    _saveConvsToPrefs(updated);
-    _deleteMessagesFromPrefs(id);
-  }
-
-  static Future<List<ConversationModel>> _loadConvsFromPrefs() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_kConversationsKey);
-      if (raw == null) return [];
-      final list = (json.decode(raw) as List<dynamic>)
-          .cast<Map<String, dynamic>>();
-      return list.map(ConversationModel.fromJson).toList();
-    } catch (_) {
-      return [];
-    }
-  }
-
-  static Future<void> _saveConvsToPrefs(List<ConversationModel> convs) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        _kConversationsKey,
-        json.encode(convs.map((c) => c.toJson()).toList()),
-      );
-    } catch (_) {}
-  }
-
-  static Future<void> _deleteMessagesFromPrefs(String convId) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('$_kMessagesPrefix$convId');
-    } catch (_) {}
+    await ref.read(conversationRepositoryProvider).persist(updated);
+    await ref.read(conversationRepositoryProvider).delete(id);
   }
 }
 
 final conversationsProvider =
-    StateNotifierProvider<
-      ConversationsNotifier,
-      AsyncValue<List<ConversationModel>>
-    >((_) => ConversationsNotifier());
+    AsyncNotifierProvider<ConversationsNotifier, List<ConversationModel>>(
+      ConversationsNotifier.new,
+    );
 
 // ── Generation draft ──────────────────────────────────────────────────────────
 
 class GenerationDraftsNotifier
-    extends StateNotifier<Map<String, GenerationRequest>> {
-  GenerationDraftsNotifier() : super({});
+    extends Notifier<Map<String, GenerationRequest>> {
+  @override
+  Map<String, GenerationRequest> build() => {};
 
   void put(String conversationId, GenerationRequest request) =>
       state = {...state, conversationId: request};
@@ -101,10 +84,9 @@ class GenerationDraftsNotifier
 }
 
 final generationDraftsProvider =
-    StateNotifierProvider<
-      GenerationDraftsNotifier,
-      Map<String, GenerationRequest>
-    >((_) => GenerationDraftsNotifier());
+    NotifierProvider<GenerationDraftsNotifier, Map<String, GenerationRequest>>(
+      GenerationDraftsNotifier.new,
+    );
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 
@@ -121,51 +103,54 @@ class ChatMessagesState {
       );
 }
 
-class MessagesNotifier extends StateNotifier<ChatMessagesState> {
-  final CadService _cad;
-  final String conversationId;
+class MessagesNotifier
+    extends AutoDisposeFamilyAsyncNotifier<ChatMessagesState, String> {
   bool _busy = false;
 
-  MessagesNotifier(this._cad, this.conversationId)
-    : super(const ChatMessagesState(messages: [])) {
-    _loadFromPrefs();
-  }
+  // Stores a seeded state if seed() is called before build() completes.
+  // build() checks this after the async load and returns it instead of [].
+  ChatMessagesState? _pendingSeed;
 
-  // ── Persistence ────────────────────────────────────────────────────────────
+  @override
+  Future<ChatMessagesState> build(String conversationId) async {
+    final msgs = await ref.read(messageRepositoryProvider).load(conversationId);
 
-  Future<void> _loadFromPrefs() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString('$_kMessagesPrefix$conversationId');
-      if (raw == null || state.messages.isNotEmpty) {
-        state = state.copyWith(loaded: true);
-        return;
-      }
-      final list = json.decode(raw) as List<dynamic>;
-      final msgs = list
-          .map((e) => MessageModel.fromLocalJson(e as Map<String, dynamic>))
-          .toList();
-      if (state.messages.isEmpty) {
-        state = ChatMessagesState(messages: msgs, loaded: true);
-        _resumeActiveGenerations();
-      }
-    } catch (_) {
-      state = state.copyWith(loaded: true);
+    // If sendGeneration already ran while we were awaiting the IO (race:
+    // addPostFrameCallback fired before build() completed), its state is
+    // already correct. Returning _pendingSeed here would override it and
+    // create a second orphaned assistant message. Preserve the live state.
+    final live = state;
+    if (live is AsyncData<ChatMessagesState> &&
+        live.value.messages.isNotEmpty) {
+      _pendingSeed = null;
+      return live.value;
     }
+
+    // seed() may have run while we were loading (home_page calls it before
+    // navigating). Return the seeded state so the optimistic UI is preserved.
+    if (_pendingSeed != null) {
+      final seeded = _pendingSeed!;
+      _pendingSeed = null;
+      _save(seeded.messages);
+      return seeded;
+    }
+
+    final initial = ChatMessagesState(messages: msgs, loaded: true);
+    Future.microtask(_resumeActiveGenerations);
+    return initial;
   }
 
-  Future<void> _saveToPrefs(List<MessageModel> msgs) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        '$_kMessagesPrefix$conversationId',
-        json.encode(msgs.map((m) => m.toLocalJson()).toList()),
-      );
-    } catch (_) {}
+  // ── Persistence helpers ────────────────────────────────────────────────────
+
+  List<MessageModel> get _messages => state.valueOrNull?.messages ?? [];
+
+  void _save(List<MessageModel> msgs) {
+    // Fire-and-forget — errors are logged by MessageLocalSource.
+    ref.read(messageRepositoryProvider).persist(arg, msgs);
   }
 
   void _resumeActiveGenerations() {
-    final active = state.messages
+    final active = _messages
         .where(
           (m) =>
               m.role == MessageRole.assistant &&
@@ -183,7 +168,6 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
           clearRetryRequest: true,
         ),
       );
-      _saveToPrefs(state.messages);
       _busy = true;
       _pollExistingGeneration(
         workflowId: workflowId,
@@ -196,9 +180,12 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
   // ── Optimistic seed ────────────────────────────────────────────────────────
 
   void seed(GenerationRequest request) {
-    if (_busy || state.messages.isNotEmpty) return;
+    if (_busy) return;
+    final current = state.valueOrNull;
+    if (current != null && current.messages.isNotEmpty) return;
+
     final now = DateTime.now();
-    state = ChatMessagesState(
+    final seeded = ChatMessagesState(
       messages: [
         MessageModel(
           id: 'user-${now.millisecondsSinceEpoch}',
@@ -217,7 +204,15 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
       ],
       loaded: true,
     );
-    _saveToPrefs(state.messages);
+
+    if (state.isLoading) {
+      // build() is still running — store for it to return and persist now.
+      _pendingSeed = seeded;
+      _save(seeded.messages);
+    } else {
+      state = AsyncValue.data(seeded);
+      _save(seeded.messages);
+    }
   }
 
   // ── Generation ─────────────────────────────────────────────────────────────
@@ -228,61 +223,62 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
     _busy = true;
 
     final now = DateTime.now();
+    final workflowId = CadService.createWorkflowId();
 
     String userId;
     String assistantId;
     DateTime assistantCreatedAt;
-    final workflowId = CadService.createWorkflowId();
 
-    if (state.messages.isNotEmpty && state.messages.any((m) => m.isStreaming)) {
-      // Already seeded — reuse those IDs for upserts.
-      final seededUser = state.messages.firstWhere(
+    if (_messages.isNotEmpty && _messages.any((m) => m.isStreaming)) {
+      final seededUser = _messages.firstWhere(
         (m) => m.role == MessageRole.user,
       );
-      final seededAssistant = state.messages.firstWhere(
+      final seededAsst = _messages.firstWhere(
         (m) => m.role == MessageRole.assistant,
       );
       userId = seededUser.id;
-      assistantId = seededAssistant.id;
-      assistantCreatedAt = seededAssistant.createdAt;
-      state = ChatMessagesState(
-        messages: [
-          seededUser.copyWith(text: request.prompt),
-          seededAssistant.copyWith(
-            text: 'Starting generation…',
-            isStreaming: true,
-            workflowId: workflowId,
-          ),
-        ],
-        loaded: true,
+      assistantId = seededAsst.id;
+      assistantCreatedAt = seededAsst.createdAt;
+      state = AsyncValue.data(
+        ChatMessagesState(
+          messages: [
+            seededUser.copyWith(text: request.prompt),
+            seededAsst.copyWith(
+              text: 'Starting generation…',
+              isStreaming: true,
+              workflowId: workflowId,
+            ),
+          ],
+          loaded: true,
+        ),
       );
     } else {
       userId = 'user-${now.millisecondsSinceEpoch}';
       assistantId = 'cad-${now.millisecondsSinceEpoch}';
       assistantCreatedAt = now;
-      state = state.copyWith(
-        messages: [
-          ...state.messages,
-          MessageModel(
-            id: userId,
-            role: MessageRole.user,
-            text: request.prompt,
-            createdAt: now,
-            imageDataUrl: request.imageDataUrl,
-          ),
-          MessageModel(
-            id: assistantId,
-            role: MessageRole.assistant,
-            text: 'Starting generation…',
-            createdAt: now,
-            isStreaming: true,
-            workflowId: workflowId,
-          ),
-        ],
-        loaded: true,
+      final updated = [
+        ..._messages,
+        MessageModel(
+          id: userId,
+          role: MessageRole.user,
+          text: request.prompt,
+          createdAt: now,
+          imageDataUrl: request.imageDataUrl,
+        ),
+        MessageModel(
+          id: assistantId,
+          role: MessageRole.assistant,
+          text: 'Starting generation…',
+          createdAt: now,
+          isStreaming: true,
+          workflowId: workflowId,
+        ),
+      ];
+      state = AsyncValue.data(
+        ChatMessagesState(messages: updated, loaded: true),
       );
     }
-    _saveToPrefs(state.messages);
+    _save(_messages);
 
     await _runGeneration(
       request: request,
@@ -298,8 +294,9 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
     required DateTime assistantCreatedAt,
     required String workflowId,
   }) async {
+    final cad = ref.read(cadServiceProvider);
     try {
-      final startedWorkflowId = await _cad.startGeneration(
+      final startedWorkflowId = await cad.startGeneration(
         request,
         workflowId: workflowId,
       );
@@ -313,59 +310,59 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
           workflowId: startedWorkflowId,
         ),
       );
-      _saveToPrefs(state.messages);
 
       final result = await _runWorkflowWithProgress(
         startedWorkflowId,
+        cad: cad,
         assistantId: assistantId,
         assistantCreatedAt: assistantCreatedAt,
       );
 
       final failed = result.failed || result.glbUrl == null;
-      final msg = MessageModel(
-        id: assistantId,
-        role: MessageRole.assistant,
-        text: failed
-            ? _failureText(result.errorMessage)
-            : 'Your 3D model is ready.',
-        createdAt: assistantCreatedAt,
-        isStreaming: false,
-        modelUrl: result.glbUrl,
-        workflowId: startedWorkflowId,
-        modelArtifact: result.modelArtifact,
-        codeArtifact: result.codeArtifact,
-        jointsArtifact: result.jointsArtifact,
-        joints: result.joints,
-        modelOptionId: request.modelOption.id,
-        instructionPrompt: request.prompt.trim(),
-        retryRequest: failed ? request : null,
+      _upsert(
+        MessageModel(
+          id: assistantId,
+          role: MessageRole.assistant,
+          text: failed
+              ? _failureText(result.errorMessage)
+              : 'Your 3D model is ready.',
+          createdAt: assistantCreatedAt,
+          isStreaming: false,
+          modelUrl: result.glbUrl,
+          workflowId: startedWorkflowId,
+          modelArtifact: result.modelArtifact,
+          codeArtifact: result.codeArtifact,
+          jointsArtifact: result.jointsArtifact,
+          joints: result.joints,
+          modelOptionId: request.modelOption.id,
+          instructionPrompt: request.prompt.trim(),
+          retryRequest: failed ? request : null,
+        ),
       );
-      _upsert(msg);
-      _saveToPrefs(state.messages);
     } on CadException catch (e) {
-      final msg = MessageModel(
-        id: assistantId,
-        role: MessageRole.assistant,
-        text: _failureText(e.message),
-        createdAt: assistantCreatedAt,
-        isStreaming: false,
-        workflowId: workflowId,
-        retryRequest: request,
+      _upsert(
+        MessageModel(
+          id: assistantId,
+          role: MessageRole.assistant,
+          text: _failureText(e.message),
+          createdAt: assistantCreatedAt,
+          isStreaming: false,
+          workflowId: workflowId,
+          retryRequest: request,
+        ),
       );
-      _upsert(msg);
-      _saveToPrefs(state.messages);
     } catch (_) {
-      final msg = MessageModel(
-        id: assistantId,
-        role: MessageRole.assistant,
-        text: 'Failed to generate model. Please try again.',
-        createdAt: assistantCreatedAt,
-        isStreaming: false,
-        workflowId: workflowId,
-        retryRequest: request,
+      _upsert(
+        MessageModel(
+          id: assistantId,
+          role: MessageRole.assistant,
+          text: 'Failed to generate model. Please try again.',
+          createdAt: assistantCreatedAt,
+          isStreaming: false,
+          workflowId: workflowId,
+          retryRequest: request,
+        ),
       );
-      _upsert(msg);
-      _saveToPrefs(state.messages);
     } finally {
       _busy = false;
     }
@@ -373,10 +370,11 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
 
   Future<CadResult> _runWorkflowWithProgress(
     String workflowId, {
+    required CadService cad,
     required String assistantId,
     required DateTime assistantCreatedAt,
   }) {
-    return _cad.runWorkflow(
+    return cad.runWorkflow(
       workflowId,
       onProgress: (status) => _upsert(
         MessageModel(
@@ -396,9 +394,11 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
     required String assistantId,
     required DateTime assistantCreatedAt,
   }) async {
+    final cad = ref.read(cadServiceProvider);
     try {
       final result = await _runWorkflowWithProgress(
         workflowId,
+        cad: cad,
         assistantId: assistantId,
         assistantCreatedAt: assistantCreatedAt,
       );
@@ -433,15 +433,14 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
       );
     } finally {
       _busy = false;
-      _saveToPrefs(state.messages);
     }
   }
 
   Future<void> retry(String failedMessageId) async {
     if (_busy) return;
-    final msg = state.messages.firstWhere(
+    final msg = _messages.firstWhere(
       (m) => m.id == failedMessageId,
-      orElse: () => throw StateError('not found'),
+      orElse: () => throw StateError('message not found'),
     );
     if (msg.retryRequest == null) return;
     final workflowId = CadService.createWorkflowId();
@@ -453,7 +452,6 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
         clearRetryRequest: true,
       ),
     );
-    _saveToPrefs(state.messages);
     _busy = true;
     await _runGeneration(
       request: msg.retryRequest!,
@@ -472,24 +470,42 @@ class MessagesNotifier extends StateNotifier<ChatMessagesState> {
     return clean;
   }
 
+  void patchArticulation(
+    String messageId, {
+    required String modelUrl,
+    required String workflowId,
+    required Map<String, dynamic>? jointsArtifact,
+    required List<Map<String, dynamic>> joints,
+  }) {
+    final current = _messages;
+    final idx = current.indexWhere((m) => m.id == messageId);
+    if (idx == -1) return;
+    final updated = [...current];
+    updated[idx] = current[idx].copyWith(
+      modelUrl: modelUrl,
+      workflowId: workflowId,
+      jointsArtifact: jointsArtifact,
+      joints: joints,
+    );
+    state = AsyncValue.data(
+      ChatMessagesState(messages: updated, loaded: true),
+    );
+    _save(updated);
+  }
+
   void _upsert(MessageModel msg) {
-    final messages = state.messages;
-    final idx = messages.indexWhere((m) => m.id == msg.id);
+    final current = _messages;
+    final idx = current.indexWhere((m) => m.id == msg.id);
+    final updated = [...current];
     if (idx == -1) {
-      state = state.copyWith(messages: [...messages, msg], loaded: true);
+      updated.add(msg);
     } else {
-      final updated = [...messages];
       updated[idx] = msg;
-      state = state.copyWith(messages: updated, loaded: true);
     }
-    _saveToPrefs(state.messages);
+    state = AsyncValue.data(ChatMessagesState(messages: updated, loaded: true));
+    _save(updated);
   }
 }
 
-final messagesProvider =
-    StateNotifierProvider.family<MessagesNotifier, ChatMessagesState, String>((
-      ref,
-      convId,
-    ) {
-      return MessagesNotifier(ref.watch(cadServiceProvider), convId);
-    });
+final messagesProvider = AsyncNotifierProvider.autoDispose
+    .family<MessagesNotifier, ChatMessagesState, String>(MessagesNotifier.new);

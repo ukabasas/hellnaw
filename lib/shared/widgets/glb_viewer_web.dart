@@ -30,6 +30,8 @@ class GlbViewerPlatform extends ConsumerStatefulWidget {
     this.sourceWorkflowId,
     this.editModelOptions = const [],
     this.defaultEditModelOptionId,
+    this.onArticulationCompleted,
+    this.viewerStateKey,
   });
 
   final String src;
@@ -42,6 +44,16 @@ class GlbViewerPlatform extends ConsumerStatefulWidget {
   final String? sourceWorkflowId;
   final List<GenerationModelOption> editModelOptions;
   final String? defaultEditModelOptionId;
+  /// Called when articulation completes. Provides the articulated model's
+  /// persistent URL, workflow ID, and joint data so the caller can persist them.
+  final void Function(
+    String glbUrl,
+    String workflowId,
+    Map<String, dynamic>? jointsArtifact,
+    List<Map<String, dynamic>> joints,
+  )? onArticulationCompleted;
+  /// Stable key for IndexedDB state persistence. Defaults to a hash of [src].
+  final String? viewerStateKey;
 
   @override
   ConsumerState<GlbViewerPlatform> createState() => _GlbViewerPlatformState();
@@ -55,6 +67,7 @@ class _GlbViewerPlatformState extends ConsumerState<GlbViewerPlatform> {
   late final web.HTMLIFrameElement _iframe;
 
   String? _resolvedSrc;
+  bool _loadError = false;
 
   @override
   void initState() {
@@ -65,6 +78,7 @@ class _GlbViewerPlatformState extends ConsumerState<GlbViewerPlatform> {
       ..style.width = '100%'
       ..style.height = '100%'
       ..style.border = 'none'
+      ..style.borderRadius = '12px'
       ..style.background = '#0d0d0d'
       ..setAttribute('allow', 'fullscreen *')
       ..setAttribute('allowfullscreen', 'true');
@@ -112,15 +126,52 @@ class _GlbViewerPlatformState extends ConsumerState<GlbViewerPlatform> {
   }
 
   Future<void> _resolveAndLoad(String src) async {
+    if (_loadError) setState(() => _loadError = false);
+
     final resolved = await GlbAssetCache.resolve(src);
     if (!mounted || src != widget.src) {
-      GlbAssetCache.revoke(resolved);
+      if (resolved != null) GlbAssetCache.revoke(resolved);
       return;
     }
 
-    setState(() => _resolvedSrc = resolved);
-    _iframe.src = _buildViewerUrl(resolved);
-    _postEditConfigSoon(src);
+    if (resolved != null) {
+      setState(() => _resolvedSrc = resolved);
+      _iframe.src = _buildViewerUrl(resolved);
+      _postEditConfigSoon(src);
+      return;
+    }
+
+    // URL inaccessible (expired SAS token). Re-fetch a fresh URL via the API.
+    final workflowId = widget.sourceWorkflowId;
+    if (workflowId == null || workflowId.isEmpty) {
+      setState(() => _loadError = true);
+      return;
+    }
+
+    try {
+      final freshUrl = (await ref.read(cadServiceProvider).getResult(workflowId)).glbUrl;
+      if (!mounted || src != widget.src || freshUrl == null) {
+        if (mounted && src == widget.src) setState(() => _loadError = true);
+        return;
+      }
+      final freshResolved = await GlbAssetCache.resolve(freshUrl);
+      if (!mounted || src != widget.src) {
+        if (freshResolved != null) GlbAssetCache.revoke(freshResolved);
+        return;
+      }
+      if (freshResolved == null) {
+        setState(() => _loadError = true);
+        return;
+      }
+      setState(() {
+        _resolvedSrc = freshResolved;
+        _loadError = false;
+      });
+      _iframe.src = _buildViewerUrl(freshResolved);
+      _postEditConfigSoon(freshUrl);
+    } catch (_) {
+      if (mounted && src == widget.src) setState(() => _loadError = true);
+    }
   }
 
   void _postEditConfigSoon(String src) {
@@ -139,7 +190,7 @@ class _GlbViewerPlatformState extends ConsumerState<GlbViewerPlatform> {
   String _buildViewerUrl(String modelUrl) {
     final params = {
       'viewerId': _viewerId,
-      'stateKey': widget.src.hashCode.toRadixString(16),
+      'stateKey': widget.viewerStateKey ?? widget.src.hashCode.toRadixString(16),
       'glb': modelUrl,
       'sourceModelUrl': widget.src,
       'autoRotate': widget.autoRotate.toString(),
@@ -180,7 +231,7 @@ class _GlbViewerPlatformState extends ConsumerState<GlbViewerPlatform> {
         if (widget.codeArtifact != null) 'codeArtifact': widget.codeArtifact,
         if (widget.jointsArtifact != null)
           'jointsArtifact': widget.jointsArtifact,
-        'joints': widget.joints,
+        if (widget.joints.isNotEmpty) 'joints': widget.joints,
         'sourceModelUrl': widget.src,
         'instructionPrompt': widget.instructionPrompt ?? '',
         'sourceWorkflowId': widget.sourceWorkflowId ?? '',
@@ -364,7 +415,15 @@ class _GlbViewerPlatformState extends ConsumerState<GlbViewerPlatform> {
 
       final resolved = await GlbAssetCache.resolve(result.glbUrl!);
       if (!mounted) {
-        GlbAssetCache.revoke(resolved);
+        if (resolved != null) GlbAssetCache.revoke(resolved);
+        return;
+      }
+      if (resolved == null) {
+        _postEditResult({
+          'requestId': requestId,
+          'status': 'failed',
+          'message': 'The edited model could not be loaded. Try again.',
+        });
         return;
       }
       _postEditResult({
@@ -380,6 +439,14 @@ class _GlbViewerPlatformState extends ConsumerState<GlbViewerPlatform> {
         'joints': result.joints,
         'jointCount': result.jointCount,
       });
+      if (operation == 'articulate_3d_model' && result.joints.isNotEmpty) {
+        widget.onArticulationCompleted?.call(
+          result.glbUrl!,
+          workflowId,
+          result.jointsArtifact,
+          result.joints,
+        );
+      }
     } on CadException catch (e) {
       _postEditResult({
         'requestId': requestId,
@@ -463,7 +530,33 @@ class _GlbViewerPlatformState extends ConsumerState<GlbViewerPlatform> {
         border: Border.all(color: kBorderColor),
       ),
       clipBehavior: Clip.hardEdge,
-      child: HtmlElementView(viewType: _viewType),
+      child: _loadError
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.broken_image_outlined,
+                    color: kTextMuted,
+                    size: 36,
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Model unavailable',
+                    style: TextStyle(color: kTextMuted, fontSize: 13),
+                  ),
+                  const SizedBox(height: 4),
+                  TextButton(
+                    onPressed: () => _resolveAndLoad(widget.src),
+                    child: const Text(
+                      'Retry',
+                      style: TextStyle(color: kAccentBlue, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : HtmlElementView(viewType: _viewType),
     );
   }
 }

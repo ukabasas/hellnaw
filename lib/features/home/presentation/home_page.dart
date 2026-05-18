@@ -4,17 +4,21 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:nova3d_frontend/core/constants.dart';
 import 'package:nova3d_frontend/core/theme.dart';
+import 'package:nova3d_frontend/shared/widgets/nova_cube.dart';
+import 'package:nova3d_frontend/core/utils.dart';
 import 'package:nova3d_frontend/features/api_keys/state/api_key_provider.dart';
 import 'package:nova3d_frontend/features/auth/state/auth_provider.dart';
 import 'package:nova3d_frontend/features/cad/data/cad_service.dart';
 import 'package:nova3d_frontend/features/cad/models/generation_model_option.dart';
 import 'package:nova3d_frontend/features/cad/models/generation_request.dart';
 import 'package:nova3d_frontend/features/cad/state/cad_provider.dart';
-import 'package:nova3d_frontend/features/chat/presentation/chat_page.dart';
 import 'package:nova3d_frontend/features/chat/state/chat_provider.dart';
+import 'package:nova3d_frontend/features/home/presentation/widgets/suggestion_pills.dart';
 import 'package:nova3d_frontend/shared/models/conversation_model.dart';
+import 'package:nova3d_frontend/shared/widgets/image_attachment_chip.dart';
 
 const _genericReadinessError =
     'The generation service is unavailable right now. Please try again shortly.';
@@ -56,15 +60,10 @@ class _HomePageState extends ConsumerState<HomePage> {
     }
 
     final extension = (file.extension ?? 'png').toLowerCase();
-    final mime = switch (extension) {
-      'jpg' || 'jpeg' => 'image/jpeg',
-      'webp' => 'image/webp',
-      _ => 'image/png',
-    };
-
     setState(() {
       _imageName = file.name;
-      _imageDataUrl = 'data:$mime;base64,${base64Encode(bytes)}';
+      _imageDataUrl =
+          'data:${mimeTypeForExtension(extension)};base64,${base64Encode(bytes)}';
     });
   }
 
@@ -103,35 +102,27 @@ class _HomePageState extends ConsumerState<HomePage> {
         _showInlineMessage(readiness.userMessage);
         return;
       }
+
+      final user = ref.read(authProvider).valueOrNull;
+      final id = 'conv_${DateTime.now().millisecondsSinceEpoch}';
+      final conv = ConversationModel(
+        id: id,
+        title: request.conversationTitle,
+        userId: user?.id ?? '',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+      ref.read(conversationsProvider.notifier).prepend(conv);
+      ref.read(generationDraftsProvider.notifier).put(id, request);
+      ref.read(messagesProvider(id).notifier).seed(request);
+      if (mounted) context.go('/chat/$id');
     } on CadException catch (e) {
       _showInlineMessage(e.message);
-      return;
     } catch (_) {
       _showInlineMessage(_genericReadinessError);
-      return;
     } finally {
       if (mounted) setState(() => _creating = false);
     }
-
-    setState(() => _creating = true);
-    final user = ref.read(authProvider).user;
-    final id = 'conv_${DateTime.now().millisecondsSinceEpoch}';
-    final conv = ConversationModel(
-      id: id,
-      title: request.conversationTitle,
-      userId: user?.id ?? '',
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-    );
-    ref.read(conversationsProvider.notifier).prepend(conv);
-    ref.read(generationDraftsProvider.notifier).put(id, request);
-    // Seed the messages provider immediately so ChatPage has content on its
-    // first frame — prevents the empty-state flash during navigation.
-    ref.read(messagesProvider(id).notifier).seed(request);
-    if (mounted) {
-      context.go('/chat/$id');
-    }
-    setState(() => _creating = false);
   }
 
   void _showInlineMessage(String message) {
@@ -145,22 +136,22 @@ class _HomePageState extends ConsumerState<HomePage> {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        backgroundColor: kBgSecondary,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
-          'Add a provider key',
-          style: TextStyle(color: kTextPrimary),
+        backgroundColor: kSurface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: kInk, width: 1.5),
         ),
+        title: Text('Add a provider key', style: kVt323(28, color: kInk)),
         content: Text(
           'Add and validate at least one Gemini, Anthropic, or OpenAI key in Settings before generating. Make sure the provider account has at least \$10 in available credit.',
-          style: Theme.of(context).textTheme.bodyMedium,
+          style: GoogleFonts.inter(color: kInkSoft, fontSize: 14),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text(
+            child: Text(
               'Cancel',
-              style: TextStyle(color: kTextSecondary),
+              style: GoogleFonts.inter(color: kInkMuted, fontSize: 13),
             ),
           ),
           TextButton(
@@ -168,7 +159,14 @@ class _HomePageState extends ConsumerState<HomePage> {
               Navigator.of(dialogContext).pop();
               context.go('/settings');
             },
-            child: const Text('Open Settings'),
+            child: Text(
+              'Open Settings',
+              style: GoogleFonts.inter(
+                color: kInk,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
         ],
       ),
@@ -180,232 +178,104 @@ class _HomePageState extends ConsumerState<HomePage> {
     final modelOptions = ref.watch(generationModelOptionsProvider);
     final readiness = ref.watch(generationReadinessProvider);
 
-    return Scaffold(
-      backgroundColor: kBgDark,
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(32),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 700),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Hero icon
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    color: kAccentBlue.withValues(alpha: 0.1),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: kAccentBlue.withValues(alpha: 0.3),
+    // No inner Scaffold — AppLayout provides it with the grid background
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 56),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 700),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const NovaCube(size: 80),
+              const SizedBox(height: 24),
+              // VT323 heading
+              RichText(
+                textAlign: TextAlign.center,
+                text: TextSpan(
+                  style: kVt323(54, color: kInk),
+                  children: [
+                    const TextSpan(text: 'what do you want to make'),
+                    TextSpan(
+                      text: '?',
+                      style: TextStyle(color: kPink),
                     ),
-                  ),
-                  child: const Icon(
-                    Icons.view_in_ar,
-                    color: kAccentBlue,
-                    size: 32,
-                  ),
+                  ],
                 ),
-                const SizedBox(height: 24),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Describe an object, drop a reference image, or do both.\nWe\'ll turn it into a 3D model you can rotate, tweak, and export.',
+                style: GoogleFonts.inter(
+                  fontSize: 15,
+                  color: kInkSoft,
+                  height: 1.55,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 32),
 
-                Text(
-                  'What do you want to create?',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w700,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Describe an object, upload a reference image, or use both.',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 40),
-                readiness.when(
-                  data: (state) => state.ready
-                      ? const SizedBox.shrink()
-                      : Padding(
-                          padding: const EdgeInsets.only(bottom: 14),
-                          child: _StatusBanner(message: state.userMessage),
-                        ),
-                  loading: () => const Padding(
-                    padding: EdgeInsets.only(bottom: 14),
-                    child: _StatusBanner(
-                      message: 'Checking generation service...',
-                    ),
-                  ),
-                  error: (error, _) => Padding(
-                    padding: EdgeInsets.only(bottom: 14),
-                    child: _StatusBanner(
-                      message: _readinessErrorMessage(error),
-                    ),
-                  ),
-                ),
-
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: kBgSecondary,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: kBorderColor),
-                  ),
-                  child: Column(
-                    children: [
-                      TextField(
-                        controller: _ctrl,
-                        maxLines: 4,
-                        minLines: 2,
-                        style: const TextStyle(
-                          color: kTextPrimary,
-                          fontSize: 14,
-                        ),
-                        decoration: const InputDecoration(
-                          hintText:
-                              'Describe what to create, or upload an image and add optional guidance...',
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          contentPadding: EdgeInsets.all(4),
-                          fillColor: Colors.transparent,
-                          filled: false,
-                        ),
-                        onSubmitted: _startConversation,
+              // Readiness banner
+              readiness.when(
+                data: (state) => state.ready
+                    ? const SizedBox.shrink()
+                    : Padding(
+                        padding: const EdgeInsets.only(bottom: 14),
+                        child: _StatusBanner(message: state.userMessage),
                       ),
-                      const SizedBox(height: 10),
-                      LayoutBuilder(
-                        builder: (context, constraints) {
-                          final compact = constraints.maxWidth < 560;
-                          final modelDropdown = modelOptions.when(
-                            data: (options) {
-                              final selected = GenerationModelOption.findById(
-                                options,
-                                _selectedModelId,
-                              );
-                              if (selected != null &&
-                                  selected.id != _selectedModelId) {
-                                WidgetsBinding.instance.addPostFrameCallback((
-                                  _,
-                                ) {
-                                  if (mounted) {
-                                    setState(
-                                      () => _selectedModelId = selected.id,
-                                    );
-                                  }
-                                });
-                              }
-                              return _ModelDropdown(
-                                width: compact ? double.infinity : 220,
-                                options: options,
-                                selected: selected,
-                                onChanged: (option) => setState(
-                                  () => _selectedModelId = option?.id,
-                                ),
-                              );
-                            },
-                            loading: () => _ModelDropdownSkeleton(
-                              width: compact ? double.infinity : 150,
-                            ),
-                            error: (_, _) => _ModelDropdownSkeleton(
-                              width: compact ? double.infinity : 150,
-                            ),
-                          );
-
-                          final uploadButton = OutlinedButton.icon(
-                            onPressed: _creating ? null : _pickImage,
-                            icon: const Icon(Icons.image_outlined, size: 18),
-                            label: Text(
-                              _imageName == null
-                                  ? 'Upload image'
-                                  : 'Change image',
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          );
-
-                          final generateButton = ElevatedButton(
-                            onPressed:
-                                _creating ||
-                                    readiness.isLoading ||
-                                    readiness.valueOrNull?.ready == false
-                                ? null
-                                : () => _startConversation(_ctrl.text),
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 20,
-                                vertical: 14,
-                              ),
-                            ),
-                            child: _creating
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text('Generate'),
-                                      SizedBox(width: 6),
-                                      Icon(Icons.arrow_forward, size: 16),
-                                    ],
-                                  ),
-                          );
-
-                          if (compact) {
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                uploadButton,
-                                const SizedBox(height: 10),
-                                modelDropdown,
-                                if (_imageName != null) ...[
-                                  const SizedBox(height: 10),
-                                  _ImageAttachmentChip(
-                                    name: _imageName!,
-                                    onClear: _clearImage,
-                                  ),
-                                ],
-                                const SizedBox(height: 10),
-                                generateButton,
-                              ],
-                            );
-                          }
-
-                          return Row(
-                            children: [
-                              Flexible(child: uploadButton),
-                              const SizedBox(width: 10),
-                              modelDropdown,
-                              const SizedBox(width: 10),
-                              if (_imageName != null)
-                                Expanded(
-                                  child: _ImageAttachmentChip(
-                                    name: _imageName!,
-                                    onClear: _clearImage,
-                                  ),
-                                )
-                              else
-                                const Expanded(child: SizedBox()),
-                              const SizedBox(width: 10),
-                              generateButton,
-                            ],
-                          );
-                        },
-                      ),
-                    ],
-                  ),
+                loading: () => SizedBox(),
+                // const Padding(
+                //   padding: EdgeInsets.only(bottom: 14),
+                //   child: _StatusBanner(
+                //     message: 'Checking generation service...',
+                //   ),
+                // ),
+                error: (error, _) => Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: _StatusBanner(message: _readinessErrorMessage(error)),
                 ),
-                const SizedBox(height: 28),
+              ),
 
-                // Suggestion pills
-                SuggestionPills(onSelect: _startConversation),
-              ],
-            ),
+              // Prompt card
+              _PromptCard(
+                ctrl: _ctrl,
+                creating: _creating,
+                imageName: _imageName,
+                modelOptions: modelOptions,
+                selectedModelId: _selectedModelId,
+                readiness: readiness,
+                onPickImage: _pickImage,
+                onClearImage: _clearImage,
+                onModelChanged: (id) => setState(() => _selectedModelId = id),
+                onModelSynced: (id) =>
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) setState(() => _selectedModelId = id);
+                    }),
+                onGenerate: () => _startConversation(_ctrl.text),
+              ),
+              const SizedBox(height: 28),
+
+              // Suggestion pills label
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text('✦', style: TextStyle(color: kButter, fontSize: 10)),
+                  const SizedBox(width: 8),
+                  Text(
+                    'TRY ONE OF THESE',
+                    style: kSilkscreen(
+                      10,
+                      color: kInkMuted,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text('✦', style: TextStyle(color: kButter, fontSize: 10)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SuggestionPills(onSelect: _startConversation),
+            ],
           ),
         ),
       ),
@@ -413,49 +283,292 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 }
 
-class _ModelDropdown extends StatelessWidget {
-  const _ModelDropdown({
-    required this.width,
+// ── Prompt card ───────────────────────────────────────────────────────────────
+
+class _PromptCard extends StatelessWidget {
+  const _PromptCard({
+    required this.ctrl,
+    required this.creating,
+    required this.imageName,
+    required this.modelOptions,
+    required this.selectedModelId,
+    required this.readiness,
+    required this.onPickImage,
+    required this.onClearImage,
+    required this.onModelChanged,
+    required this.onModelSynced,
+    required this.onGenerate,
+  });
+
+  final TextEditingController ctrl;
+  final bool creating;
+  final String? imageName;
+  final AsyncValue<List<GenerationModelOption>> modelOptions;
+  final String? selectedModelId;
+  final AsyncValue<dynamic> readiness;
+  final VoidCallback onPickImage;
+  final VoidCallback onClearImage;
+  final ValueChanged<String?> onModelChanged;
+  final ValueChanged<String> onModelSynced;
+  final VoidCallback onGenerate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: kChunkyCard(shadow: true),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          // Pink title strip
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: const BoxDecoration(
+              color: kPinkBg,
+              border: Border(bottom: BorderSide(color: kInk, width: 1.5)),
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(12),
+                topRight: Radius.circular(12),
+              ),
+            ),
+            child: Row(
+              children: [
+                Text('✦', style: TextStyle(color: kLilac, fontSize: 11)),
+                const SizedBox(width: 8),
+                Text(
+                  'new creation',
+                  style: kSilkscreen(10, color: kInk, letterSpacing: 0.7),
+                ),
+                const Spacer(),
+                Text(
+                  'untitled · just now',
+                  style: kSilkscreen(9, color: kInkSoft),
+                ),
+              ],
+            ),
+          ),
+
+          // Input area
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                TextField(
+                  controller: ctrl,
+                  maxLines: 4,
+                  minLines: 2,
+                  style: GoogleFonts.inter(
+                    color: kInk,
+                    fontSize: 15,
+                    height: 1.55,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Describe what to create, or upload an image...',
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    contentPadding: EdgeInsets.zero,
+                    fillColor: Colors.transparent,
+                    filled: false,
+                    hintStyle: GoogleFonts.inter(
+                      color: kInkMuted,
+                      fontSize: 15,
+                    ),
+                  ),
+                  onSubmitted: (_) => onGenerate(),
+                ),
+                const SizedBox(height: 14),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final compact =
+                        constraints.maxWidth < kInputCompactBreakpoint;
+
+                    final modelWidget = modelOptions.when(
+                      data: (options) {
+                        final selected = GenerationModelOption.findById(
+                          options,
+                          selectedModelId,
+                        );
+                        if (selected != null &&
+                            selected.id != selectedModelId) {
+                          onModelSynced(selected.id);
+                        }
+                        return _ModelChip(
+                          options: options,
+                          selected: selected,
+                          onChanged: (o) => onModelChanged(o?.id),
+                        );
+                      },
+                      loading: () => const SizedBox(
+                        width: 140,
+                        height: 34,
+                        child: Center(
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: kLilac,
+                          ),
+                        ),
+                      ),
+                      error: (_, _) => const SizedBox(width: 140, height: 34),
+                    );
+
+                    final uploadBtn = _SmallButton(
+                      label: imageName == null
+                          ? 'Upload image'
+                          : 'Change image',
+                      onTap: creating ? null : onPickImage,
+                    );
+
+                    final generateBtn = _GenerateButton(
+                      creating: creating,
+                      disabled:
+                          readiness.isLoading ||
+                          readiness.valueOrNull?.ready == false,
+                      onTap: onGenerate,
+                    );
+
+                    if (compact) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          uploadBtn,
+                          const SizedBox(height: 8),
+                          modelWidget,
+                          if (imageName != null) ...[
+                            const SizedBox(height: 8),
+                            ImageAttachmentChip(
+                              name: imageName!,
+                              onClear: onClearImage,
+                            ),
+                          ],
+                          const SizedBox(height: 8),
+                          generateBtn,
+                        ],
+                      );
+                    }
+
+                    return Row(
+                      children: [
+                        uploadBtn,
+                        const SizedBox(width: 8),
+                        modelWidget,
+                        const SizedBox(width: 8),
+                        if (imageName != null)
+                          Expanded(
+                            child: ImageAttachmentChip(
+                              name: imageName!,
+                              onClear: onClearImage,
+                            ),
+                          )
+                        else
+                          const Expanded(child: SizedBox()),
+                        const SizedBox(width: 8),
+                        generateBtn,
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Small chunky button ────────────────────────────────────────────────────────
+
+class _SmallButton extends StatefulWidget {
+  const _SmallButton({required this.label, required this.onTap});
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  State<_SmallButton> createState() => _SmallButtonState();
+}
+
+class _SmallButtonState extends State<_SmallButton> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTapDown: (_) => setState(() => _pressed = true),
+    onTapUp: (_) => setState(() => _pressed = false),
+    onTapCancel: () => setState(() => _pressed = false),
+    onTap: widget.onTap,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 80),
+      transform: Matrix4.translationValues(
+        _pressed ? 2 : 0,
+        _pressed ? 2 : 0,
+        0,
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 12),
+      decoration: BoxDecoration(
+        color: kSurface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: kInk, width: 1.5),
+        boxShadow: (_pressed || widget.onTap == null)
+            ? []
+            : const [
+                BoxShadow(color: kInk, offset: Offset(2, 2), blurRadius: 0),
+              ],
+      ),
+      child: Text(
+        widget.label.toUpperCase(),
+        style: kSilkscreen(11, color: kInk),
+      ),
+    ),
+  );
+}
+
+// ── Model chip ────────────────────────────────────────────────────────────────
+
+class _ModelChip extends StatelessWidget {
+  const _ModelChip({
     required this.options,
     required this.selected,
     required this.onChanged,
   });
 
-  final double width;
   final List<GenerationModelOption> options;
   final GenerationModelOption? selected;
   final ValueChanged<GenerationModelOption?> onChanged;
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    width: width,
-    height: 40,
+    width: 200,
+    height: 34,
     child: DropdownButtonFormField<String>(
       key: ValueKey(selected?.id ?? 'no-model'),
       initialValue: selected?.id,
       isExpanded: true,
-      dropdownColor: kBgTertiary,
-      style: const TextStyle(color: kTextPrimary, fontSize: 13),
+      dropdownColor: kLilacBg,
+      style: kSilkscreen(11, color: kInk),
+      icon: const Icon(Icons.keyboard_arrow_down, size: 16, color: kInkSoft),
       decoration: InputDecoration(
-        prefixIcon: const Icon(Icons.tune, size: 16),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 10),
         filled: true,
-        fillColor: kBgTertiary,
+        fillColor: kLilacBg,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: kBorderColor),
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: kInk, width: 1.5),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: kBorderColor),
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: kInk, width: 1.5),
         ),
       ),
-      hint: const Text('Model', overflow: TextOverflow.ellipsis),
+      hint: Text('MODEL', style: kSilkscreen(10, color: kInkSoft)),
       items: options
           .map(
-            (option) => DropdownMenuItem<String>(
-              value: option.id,
-              child: Text(option.label, overflow: TextOverflow.ellipsis),
+            (o) => DropdownMenuItem<String>(
+              value: o.id,
+              child: Text(
+                o.label,
+                overflow: TextOverflow.ellipsis,
+                style: kSilkscreen(10, color: kInk),
+              ),
             ),
           )
           .toList(),
@@ -466,22 +579,73 @@ class _ModelDropdown extends StatelessWidget {
   );
 }
 
-class _ModelDropdownSkeleton extends StatelessWidget {
-  const _ModelDropdownSkeleton({required this.width});
+// ── Generate button ────────────────────────────────────────────────────────────
 
-  final double width;
+class _GenerateButton extends StatefulWidget {
+  const _GenerateButton({
+    required this.creating,
+    required this.disabled,
+    required this.onTap,
+  });
+  final bool creating;
+  final bool disabled;
+  final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: width,
-    height: 40,
-    child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+  State<_GenerateButton> createState() => _GenerateButtonState();
+}
+
+class _GenerateButtonState extends State<_GenerateButton> {
+  bool _pressed = false;
+
+  bool get _enabled => !widget.creating && !widget.disabled;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTapDown: _enabled ? (_) => setState(() => _pressed = true) : null,
+    onTapUp: _enabled ? (_) => setState(() => _pressed = false) : null,
+    onTapCancel: _enabled ? () => setState(() => _pressed = false) : null,
+    onTap: _enabled ? widget.onTap : null,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 80),
+      transform: Matrix4.translationValues(
+        _pressed ? 2 : 0,
+        _pressed ? 2 : 0,
+        0,
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 18),
+      decoration: BoxDecoration(
+        color: _enabled ? kPink : kLineSoft,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: kInk, width: 1.5),
+        boxShadow: (_pressed || !_enabled)
+            ? []
+            : const [
+                BoxShadow(color: kInk, offset: Offset(2, 2), blurRadius: 0),
+              ],
+      ),
+      child: widget.creating
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2, color: kInk),
+            )
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Generate', style: kSilkscreen(12, color: kInk)),
+                const SizedBox(width: 6),
+                Text('→', style: kSilkscreen(14, color: kInk)),
+              ],
+            ),
+    ),
   );
 }
 
+// ── Status banner ─────────────────────────────────────────────────────────────
+
 class _StatusBanner extends StatelessWidget {
   const _StatusBanner({required this.message});
-
   final String message;
 
   @override
@@ -489,47 +653,13 @@ class _StatusBanner extends StatelessWidget {
     width: double.infinity,
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
-      color: kBgSecondary,
+      color: kButterBg,
       borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: kBorderColor),
+      border: Border.all(color: kButter, width: 1.5),
     ),
-    child: Text(message, style: const TextStyle(color: kTextSecondary)),
-  );
-}
-
-class _ImageAttachmentChip extends StatelessWidget {
-  const _ImageAttachmentChip({required this.name, required this.onClear});
-  final String name;
-  final VoidCallback onClear;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    height: 40,
-    padding: const EdgeInsets.only(left: 12, right: 4),
-    decoration: BoxDecoration(
-      color: kBgTertiary,
-      borderRadius: BorderRadius.circular(8),
-      border: Border.all(color: kBorderColor),
-    ),
-    child: Row(
-      children: [
-        const Icon(Icons.image_outlined, size: 16, color: kAccentBlue),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: kTextSecondary, fontSize: 13),
-          ),
-        ),
-        IconButton(
-          tooltip: 'Remove image',
-          onPressed: onClear,
-          icon: const Icon(Icons.close, size: 16),
-          color: kTextMuted,
-        ),
-      ],
+    child: Text(
+      message,
+      style: GoogleFonts.inter(color: kInkSoft, fontSize: 13),
     ),
   );
 }

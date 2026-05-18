@@ -12,22 +12,23 @@ class AuthGuard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authProvider);
 
-    switch (auth.status) {
-      case AuthStatus.loading:
-        return const Scaffold(
-          backgroundColor: kBgDark,
-          body: Center(
-            child: CircularProgressIndicator(color: kAccentBlue),
-          ),
-        );
-      case AuthStatus.unauthenticated:
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          final location = GoRouter.of(context).state.uri.toString();
-          context.go('/signin?redirect=${Uri.encodeComponent(location)}');
-        });
-        return const SizedBox.shrink();
-      case AuthStatus.authenticated:
-        return child;
+    if (auth.isLoading) {
+      return const Scaffold(
+        backgroundColor: kBgDark,
+        body: Center(
+          child: CircularProgressIndicator(color: kAccentBlue),
+        ),
+      );
     }
+
+    if (auth.valueOrNull == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final location = GoRouter.of(context).state.uri.toString();
+        context.go('/signin?redirect=${Uri.encodeComponent(location)}');
+      });
+      return const SizedBox.shrink();
+    }
+
+    return child;
   }
 }

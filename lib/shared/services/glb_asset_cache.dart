@@ -11,14 +11,16 @@ external void _revokeObjectUrl(JSString src);
 class GlbAssetCache {
   const GlbAssetCache._();
 
-  static Future<String> resolve(String src) async {
+  /// Returns a blob URL for [src], or null if the URL is inaccessible
+  /// (e.g. expired SAS token). Callers should handle null by refreshing the URL.
+  static Future<String?> resolve(String src) async {
     if (!kIsWeb || src.startsWith('assets/')) return src;
 
     try {
       final resolved = await _storeModel(src.toJS).toDart;
-      return resolved?.toDart ?? src;
+      return resolved?.toDart; // null when store() returned null (HTTP error)
     } catch (_) {
-      return src;
+      return null;
     }
   }
 

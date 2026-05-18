@@ -152,7 +152,7 @@ class _ProviderKeyTileState extends ConsumerState<_ProviderKeyTile> {
                             height: 16,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: Colors.white,
+                              color: kInk,
                             ),
                           )
                         : const Text('Save'),

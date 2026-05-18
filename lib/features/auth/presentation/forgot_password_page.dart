@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:nova3d_frontend/core/theme.dart';
 import 'package:nova3d_frontend/features/auth/data/auth_service.dart';
 import 'package:nova3d_frontend/features/auth/state/auth_provider.dart';
+import 'package:nova3d_frontend/shared/widgets/grid_background.dart';
 import 'package:nova3d_frontend/shared/widgets/nova_logo.dart';
 
 class ForgotPasswordPage extends ConsumerStatefulWidget {
@@ -48,33 +49,33 @@ class _ForgotPasswordPageState extends ConsumerState<ForgotPasswordPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: kBgDark,
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const NovaLogo(),
-                const SizedBox(height: 32),
-                Container(
-                  padding: const EdgeInsets.all(32),
-                  decoration: BoxDecoration(
-                    color: kBgSecondary,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: kBorderColor),
+      backgroundColor: kCream,
+      body: GridBackground(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const NovaLogo(),
+                  const SizedBox(height: 32),
+                  Container(
+                    padding: const EdgeInsets.all(32),
+                    decoration: kChunkyCard(shadow: true),
+                    child: _sent
+                        ? _SuccessContent()
+                        : _FormContent(
+                            emailCtrl: _emailCtrl,
+                            error: _error,
+                            loading: _loading,
+                            onSubmit: _submit,
+                            onBack: () => context.go('/signin'),
+                          ),
                   ),
-                  child: _sent ? _SuccessContent() : _FormContent(
-                    emailCtrl: _emailCtrl,
-                    error: _error,
-                    loading: _loading,
-                    onSubmit: _submit,
-                    onBack: () => context.go('/signin'),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -136,7 +137,7 @@ class _FormContent extends StatelessWidget {
                     height: 18,
                     width: 18,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white),
+                        strokeWidth: 2, color: kInk),
                   )
                 : const Text('Send Reset Link'),
           ),
