@@ -81,8 +81,7 @@ Unlike pure CSG/OpenSCAD systems which struggle with organic shapes, Nova3D leve
 ## Troubleshooting
 
 *   **Auth Loops:** Always use `http://127.0.0.1:5555`. Using `localhost:5555` will cause Google Sign-In to fail due to strict OAuth origin policies.
-*   **Self-Hosting Backend:** By default, this client communicates with the `nova3d.xyz` API. To point to a custom backend, use:
-    `--dart-define=API_BASE_URL=https://your-api.com`
+*   **Self-Hosting Backend:** By default, this client communicates with the `nova3d.xyz` API (currently closed-source). Self-hosting is theoretically possible by setting --dart-define=API_BASE_URL=https://your-api.com, but you would have to build your own server from scratch.
 
 ---
 
