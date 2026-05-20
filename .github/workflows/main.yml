@@ -1,18 +1,16 @@
-name: Windows Build & Release
+name: Build and Release Web Zip
 
 on:
   push:
     tags:
-      - 'v*' # Triggers the workflow when a tag like 'v1.0.0' is pushed
-  workflow_dispatch: # Allows you to run it manually from the Actions tab
+      - 'v*' # Triggers on tags like v1.0.0
+  workflow_dispatch: # Allows manual trigger
 
 jobs:
   build-and-release:
-    name: Build & Release Windows
-    runs-on: windows-latest
-    
+    runs-on: ubuntu-latest
     permissions:
-      contents: write 
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -26,22 +24,18 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Enable Windows Desktop Support
-        run: flutter config --enable-windows-desktop
+      - name: Build Web Release
+        run: flutter build web --release
 
-      - name: Create Windows Platform Support
-        # Generates the missing 'windows/' directory dynamically in CI
-        run: flutter create --platforms=windows .
+      - name: Zip build files
+        # We step into the build/web folder so the zip doesn't have nested folders
+        run: |
+          cd build/web
+          zip -r ../../Nova3D-Web.zip .
 
-      - name: Build Windows Release
-        run: flutter build windows --release
-
-      - name: Zip the build artifacts
-        run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath Nova3D-Windows.zip
-
-      - name: Create GitHub Release and Upload Artifact
+      - name: Upload Zip to Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: Nova3D-Windows.zip
+          files: Nova3D-Web.zip
           generate_release_notes: true
