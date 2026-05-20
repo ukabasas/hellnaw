@@ -39,7 +39,7 @@ jobs:
         # IMPORTANT: --base-href must match your repository name (case-sensitive).
         # For a default GitHub Pages URL (e.g. https://RareSense.github.io/Nova3D/),
         # the base-href must be "/Nova3D/".
-        run: flutter build web --release --base-href "/Nova3D/"
+        run: flutter build web --release --base-href "/hellnaw/"
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
