@@ -3,8 +3,8 @@ name: Build and Release Web Zip
 on:
   push:
     tags:
-      - 'v*' # Triggers on tags like v1.0.0
-  workflow_dispatch: # Allows manual trigger
+      - 'v*' # Triggers on tag pushes like v1.0.0
+  workflow_dispatch: # Allows manual trigger from the Actions tab
 
 jobs:
   build-and-release:
@@ -28,14 +28,23 @@ jobs:
         run: flutter build web --release
 
       - name: Zip build files
-        # We step into the build/web folder so the zip doesn't have nested folders
         run: |
           cd build/web
           zip -r ../../Nova3D-Web.zip .
 
+      # NEW: Uploads the zip directly to the Actions execution page.
+      # You can download it directly from your run summary, no tag needed!
+      - name: Upload Zip as Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nova3D-Web-Artifact
+          path: Nova3D-Web.zip
+
+      # IMPROVED: Automatically chooses between the version tag or a "latest" fallback
       - name: Upload Zip to Release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
         with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'Latest Web Build' }}
           files: Nova3D-Web.zip
           generate_release_notes: true
